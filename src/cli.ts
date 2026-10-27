@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { delegationDemo } from './delegation-demo.ts';
+import { assuranceDemo } from './assurance-demo.ts';
 import { parse, parseInterpretation } from './parser.ts';
 import { sourceArtifact } from './interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from './exchange.ts';
@@ -27,7 +28,11 @@ function program(specPath: string, ontologyPaths: string[]) {
 }
 try {
   const [command, ...args] = process.argv.slice(2);
-  if (command === 'demo-delegation' && args.length === 0) {
+  if (command === 'demo-assurance' && args.length === 0) {
+    const result = assuranceDemo() as { ok: boolean };
+    emit(result);
+    if (!result.ok) process.exitCode = 1;
+  } else if (command === 'demo-delegation' && args.length === 0) {
     const result = delegationDemo() as { ok: boolean };
     emit(result);
     if (!result.ok) process.exitCode = 1;

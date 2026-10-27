@@ -9,4 +9,11 @@ export interface Approval { id: string; version: string; actorId: string; planHa
 export interface Decision { outcome: 'Allow' | 'Deny' | 'Escalate'; code: string; grantHash?: string; budgetId?: string }
 export interface AuditEvent { id: string; parent: string | null; type: 'Attempt' | 'Denied' | 'Escalated' | 'Failed' | 'Succeeded' | 'Control'; actorId: string; time: number; payload: Record<string, unknown> }
 export interface GateSnapshot { state: State; stateHash: string; planHash: string; scope: Scope; usage: Record<string, number>; events: AuditEvent[] }
-export interface GateConfig { linked: Linked; state: State; plan: BoundPlan; identities: Identity[]; grants: Grant[]; now: () => number; submitterId?: string; reviewerId?: string }
+export interface GateConfig { linked: Linked; state: State; plan: BoundPlan; identities: Identity[]; grants: Grant[]; now: () => number; submitterId?: string; reviewerId?: string; assurance?: AssuranceBinding }
+/** Phase4 凭证绑定：注册表能力 + 精确凭证与证据摘要。缺失即不启用凭证门。 */
+export interface AssuranceBinding {
+  registry: { readonly kind: 'assurance-registry' };
+  attestationHash: string;
+  evidenceHash: string;
+  requirementHash: string;
+}

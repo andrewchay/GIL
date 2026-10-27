@@ -16,7 +16,12 @@
 - 身份注册表、now及Gate管理接口是模拟可信管理面；真实认证/持久化未实现。agent kind仅Agent角色，Service暂由human适配器承载。
 - 预算按budgetId跨Grant/主体累计保守min上限，使用Object.hasOwn取usage；成功批准也消耗一次。批准和执行提交前二次读钟，时间不得回退或重入。
 - close要求不同提交者/CRA/CTM且有current requestHash精确批准；计划切换保留预算、递增版本，使旧请求/批准失效。撤销日志包含grantHash。
-- CLI 纯Core模拟必须保留 `authorization: not-implemented` 标记。CLOSED 只表示合成 Core 契约路径，不能代替 CTM 权限、批准或实际凭证。
+- Phase4 `evidence.ts` 要求/证据快照：内容寻址绑定 scope+protocol+materials；`submitterClaims` 不进摘要且 `evidenceReady` 不读取；缺项默认 fail-closed。
+- Phase4 `assurance.ts` 凭证注册表：仅 CRA 签发且非提交者；`evaluate` 累积 7 类失效原因，任一成立即 `active=false` 且对外强制 `Unknown`；挑战后永久失活、历史保留。
+- `delegation.ts` 的 `assurance` 为**可选**绑定：配置后 `recordReviewPass`/`closeFinding` 强制要求 Pass+active 且证据摘要一致，并用凭证结果覆盖 `reviewStillValid`；未配置则退回 Phase3 legacy（不校验证据真实性）。生产适配器必须强制配置。
+- `setAssurance` 属受信管理面，已校验凭证有效/Pass/证据一致；但真实身份认证仍未实现，不得暴露给普通请求者。
+- 注册表对象被排除出 Gate 配置摘要（能力对象不可内容寻址）；审计仅存三个摘要，不含注册表身份与 evaluate reasons。每次 execute 调用两轮 evaluate。
+- CLI 模拟必须保留 `authorization: not-implemented` 标记。CLOSED 只表示合成 Core 契约路径，不能代替 CTM 权限、批准或实际凭证。
 - runtime 动态绑定使用安全自有属性，禁止原型继承充当事实；Int 限 safe integer，Decimal 为有舍入的 Number，不用于精确临床或金额计算。
 - 模拟先检查前状态再检查候选不变量；失败/Unknown 不提交。ensures 仅根状态 prime 等式赋值，所有 RHS 读取前状态。
 - canonical 摘要格式 `sha256:<hex>`，含 profile，数组保序；AST 摘要不证明语义等价。

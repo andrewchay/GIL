@@ -111,6 +111,7 @@ npm run demo:clinical
 npm run clarify:clinical       # 只提出问题，不自动回答
 npm run demo:clarification     # 显式重放合成回答与接受
 npm run demo:delegation        # 合成授权：Agent拒绝、CTM精确批准后执行
+npm run demo:assurance         # 合成凭证：失效、挑战、重开、换证据失效
 
 # 查看规范化 AST 及摘要
 node src/cli.ts ast docs/clinical-operations/monitoring-remediation/ontology.gil
@@ -119,6 +120,8 @@ node src/cli.ts ast docs/clinical-operations/monitoring-remediation/ontology.gil
 - [Core profile 与实现边界](docs/core-profile.md)
 - [Phase2 解释与澄清边界](docs/interpretation-profile.md)
 - [Phase3 模拟授权与审计](docs/delegation-profile.md)
+- [Phase4 验证凭证、失效与恢复](docs/assurance-profile.md)
+- [A01–A30 覆盖矩阵](docs/clinical-operations/monitoring-remediation/coverage.md)
 - [实现术语](docs/terminology.md)
 - [临床监查整改场景](docs/clinical-operations/monitoring-remediation/scenario.md)
 - [30 个分层验收案例](docs/clinical-operations/monitoring-remediation/acceptance.md)
@@ -129,7 +132,11 @@ Phase2 新增独立解释入口、来源接地、open/ambiguous、澄清回答�
 
 本原型只支持临床示例需要的有限子集。未支持构造显式拒绝；既有酒店和机器人完整示例不属于本 profile。
 
-Phase3 提供固定计划、过程内模拟身份注册表、Grant/deny、共享动作预算、撤销、精确批准和线性审计链。旧 `simulate` 仍为纯 Core；新 `demo:delegation` 才演示模拟授权门。100 项自动测试通过。
+Phase3 提供固定计划、过程内模拟身份注册表、Grant/deny、共享动作预算、撤销、精确批准和线性审计链。旧 `simulate` 仍为纯 Core；新 `demo:delegation` 才演示模拟授权门。
+
+Phase4 增加不可变证据/要求快照、受信注册表签发的 Attestation、失效投影（撤销、过期、规约/目标/上下文/证据变化、挑战）与挑战重开。配置凭证绑定后，复核与关闭必须由有效 Pass 凭证支撑，调用者自报的 `reviewStillValid` 不再构成依据。**凭证为进程内无签名对象，`assurance` 未配置时退回 Phase3 legacy 校验。**
+
+136 项自动测试通过。A01–A30 覆盖情况见覆盖矩阵（23 已实现、5 部分、2 未实现）。
 
 **模拟 CLOSED 不代表临床发现获准关闭。** 真实身份、实际 Attestation、持久化审计和真实系统写入尚未实现；Grant/Approval 仅为模拟实现。A01–A30 是后续外层验收，不以 Core 单测替代。Int 使用安全整数；Decimal 为有限精度 Number，不用于精确金额或临床计算。
 

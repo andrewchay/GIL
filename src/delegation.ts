@@ -5,10 +5,11 @@ import { contentHash } from './canonical.ts';
 import { hashValue } from './interpretation.ts';
 import { simulate } from './runtime.ts';
 import { validatePlan } from './plans.ts';
+import { evaluate, inspect } from './assurance.ts';
 import type { State } from './runtime.ts';
-import type { Approval, ActionRequest, AuditEvent, BoundPlan, Decision, GateConfig, GateSnapshot, Grant, Identity, Scope } from './delegation-ast.ts';
+import type { Approval, ActionRequest, AssuranceBinding, AuditEvent, BoundPlan, Decision, GateConfig, GateSnapshot, Grant, Identity, Scope } from './delegation-ast.ts';
 
-export type { Approval, ActionRequest, BoundPlan, Decision, GateConfig, GateSnapshot, Grant, Identity, Scope } from './delegation-ast.ts';
+export type { Approval, ActionRequest, AssuranceBinding, BoundPlan, Decision, GateConfig, GateSnapshot, Grant, Identity, Scope } from './delegation-ast.ts';
 /** Process-local synthetic authority. JSON cannot recreate this capability. */
 export interface Gate { readonly kind: 'delegation-gate' }
 interface RememberedRequest { request: ActionRequest; version: number }
@@ -18,6 +19,7 @@ interface Internal {
   now: () => number; submitterId: string; reviewerId: string; version: number; taskCount: number;
   usage: Record<string, number>; revokedGrants: string[]; revokedApprovals: string[];
   approvals: StoredApproval[]; requests: Record<string, RememberedRequest>; events: AuditEvent[];
+  assurance: AssuranceBinding | null;
 }
 interface Cell { value: Internal; busy: boolean; lastTime: number; reentered: boolean }
 const gates = new WeakMap<Gate, Cell>();
@@ -71,8 +73,30 @@ function stateDigest(s: Internal): string {
 }
 function digest(s: Internal, req: ActionRequest): string {
   return hashValue({ request: req, stateHash: stateDigest(s), planHash: s.plan.hash,
-    specHash: s.plan.specHash, ontologyHashes: s.plan.ontologyHashes, version: s.version });
+    specHash: s.plan.specHash, ontologyHashes: s.plan.ontologyHashes, version: s.version,
+    // 凭证内容进入请求摘要：更换凭证或证据摘要后旧批准不再适用。
+    assurance: s.assurance ? { attestationHash: s.assurance.attestationHash,
+      evidenceHash: s.assurance.evidenceHash, requirementHash: s.assurance.requirementHash } : null });
 }
+/**
+ * 凭证门：只有受信注册表签发的凭证、对当前证据/要求/规约有效且为 Pass 才通过。
+ * 调用者自报的 reviewStillValid 不参与判定；Core 的该输入由本结果覆盖。
+ */
+function attestationCheck(s: Internal): { ok: boolean; code: string; reasons: string[] } {
+  if (!s.assurance) return { ok: false, code: 'ASSURANCE_NOT_CONFIGURED', reasons: [] };
+  if (s.assurance.requirementHash !== s.plan.requirementHash) return { ok: false, code: 'ATTESTATION_REQUIREMENT_MISMATCH', reasons: [] };
+  const currentEvidence = typeof s.state.currentEvidenceHash === 'string' ? s.state.currentEvidenceHash : '';
+  try {
+    const evaluation = evaluate(s.assurance.registry, s.assurance.attestationHash, {
+      targetHash: currentEvidence, contextHash: s.plan.requirementHash,
+      specHash: s.plan.specHash, evidenceHash: s.assurance.evidenceHash });
+    if (evaluation.result !== 'Pass' || !evaluation.active) return { ok: false, code: 'ATTESTATION_INVALID', reasons: evaluation.reasons };
+    return { ok: true, code: 'ATTESTATION_VALID', reasons: [] };
+  } catch (error) {
+    return { ok: false, code: error instanceof GilError ? error.code : 'ATTESTATION_INVALID', reasons: [] };
+  }
+}
+const ASSURED_ACTIONS: readonly string[] = ['recordReviewPass', 'closeFinding'];
 function event(cell: Cell, type: AuditEvent['type'], actorId: string, time: number, payload: Record<string, unknown>): void {
   const events = cell.value.events;
   const body = { parent: events.length ? events[events.length - 1].id : null, type, actorId, time, payload };
@@ -110,11 +134,25 @@ export function createGate(config: GateConfig): Gate {
   }
   if (!now) fail('INVALID_CLOCK', 'Provide a trusted synthetic clock adapter');
   // The plan is an issued capability. Validate original provenance, not its JSON copy.
-  hashValue(data);
+  // 能力对象（凭证注册表）不参与内容寻址，也不复制：JSON 摘要无法承载签发权威。
+  const hashable: Record<string, unknown> = Object.create(null);
+  for (const [key, value] of Object.entries(data)) if (key !== 'assurance') hashable[key] = value;
+  hashValue(hashable);
   const originalPlan = data.plan as BoundPlan;
   validatePlan(originalPlan, data.linked as GateConfig['linked']);
-  const clean = copy(data) as unknown as Omit<GateConfig, 'now'>;
+  const clean = copy(hashable) as unknown as Omit<GateConfig, 'now'>;
   clean.plan = originalPlan;
+  // 凭证注册表是过程内能力，structuredClone 会失去身份，必须保留原始引用。
+  let assurance: AssuranceBinding | null = null;
+  if (data.assurance !== undefined) {
+    const raw = data.assurance as AssuranceBinding;
+    if (!record(raw) || !text(raw.attestationHash) || !text(raw.evidenceHash) || !text(raw.requirementHash)) fail('INVALID_ASSURANCE', 'Assurance binding requires registry, attestation, evidence and requirement');
+    try { inspect(raw.registry, raw.attestationHash); }
+    catch (error) { fail('INVALID_ASSURANCE', error instanceof GilError ? error.message : 'Assurance must be issued in this process'); }
+    if (raw.requirementHash !== clean.plan.requirementHash) fail('INVALID_ASSURANCE', 'Assurance must bind the plan requirement');
+    assurance = Object.freeze({ registry: raw.registry, attestationHash: raw.attestationHash,
+      evidenceHash: raw.evidenceHash, requirementHash: raw.requirementHash });
+  }
   if (!record(clean.linked) || !record(clean.state) || !Array.isArray(clean.identities) || !Array.isArray(clean.grants)) fail('INVALID_CONFIG', 'Missing gate data');
   const diagnostics = check(clean.linked);
   if (diagnostics.length) fail('INVALID_LINKED', JSON.stringify(diagnostics));
@@ -144,7 +182,7 @@ export function createGate(config: GateConfig): Gate {
   const gate: Gate = Object.freeze({ kind: 'delegation-gate' });
   const value: Internal = Object.freeze({ linked: freeze(clean.linked), state: freeze(clean.state), plan: freeze(clean.plan),
     identities: freeze(clean.identities), grants: freeze(clean.grants), now, submitterId: clean.submitterId ?? '', reviewerId: clean.reviewerId ?? '',
-    version: 0, taskCount: 0, usage: freeze({}), revokedGrants: freeze([]), revokedApprovals: freeze([]), approvals: freeze([]), requests: freeze({}), events: freeze([]) });
+    version: 0, taskCount: 0, usage: freeze({}), revokedGrants: freeze([]), revokedApprovals: freeze([]), approvals: freeze([]), requests: freeze({}), events: freeze([]), assurance });
   gates.set(gate, { value, busy: false, lastTime: -Number.MAX_VALUE, reentered: false });
   // Validate the adapter while the capability is guarded; do not expose a half-created gate.
   try { locked(gate, clock); } catch (error) { gates.delete(gate); throw error; }
@@ -168,6 +206,12 @@ function decision(s: Internal, req: ActionRequest, time: number, needsApproval =
   if (!Object.values(roles).some(actions => actions.includes(req.action))) return escalate('UNKNOWN_ACTION');
   if (!Object.hasOwn(roles, actor.role) || !roles[actor.role].includes(req.action)) return deny('ROLE_FORBIDDEN');
   if (req.action === 'approveClosure' && actor.kind !== 'human') return deny('HUMAN_APPROVAL_REQUIRED');
+  // Phase4：启用凭证门后，复核与关闭必须由受信凭证支撑，输入 Bool 不再是依据。
+  if (s.assurance && ASSURED_ACTIONS.includes(req.action)) {
+    const attestation = attestationCheck(s);
+    if (!attestation.ok) return deny(attestation.code);
+    if (s.state.currentEvidenceHash !== s.assurance.evidenceHash) return deny('EVIDENCE_CHANGED');
+  }
   if (actor.role === 'CRA' && actor.actorId === s.submitterId) return deny('REVIEW_SEPARATION');
   if (req.action === 'recordAcceptedPlan' && req.params.planHash !== s.plan.hash) return deny('PLAN_MISMATCH');
   if (req.inputs.stagedEvidence !== undefined && (!scopeRecord(req.inputs.stagedEvidence, s.plan.scope)
@@ -245,7 +289,10 @@ export function execute(gate: Gate, request: ActionRequest): ExecutionResult {
         if (!Number.isSafeInteger(taskCount + 1)) fail('TASK_LIMIT', 'Task counter overflow');
         taskCount++;
       } else {
-        const simulation = simulate(before.linked, before.state, req.inputs, req.action, req.params);
+        // 凭证有效时以凭证结果覆盖调用者的 reviewStillValid，杜绝自报通过。
+        const inputs = before.assurance && ASSURED_ACTIONS.includes(req.action)
+          ? freeze({ ...req.inputs, reviewStillValid: true }) : req.inputs;
+        const simulation = simulate(before.linked, before.state, inputs, req.action, req.params);
         checks = simulation.checks;
         if (!simulation.ok) { event(cell, 'Failed', req.actorId, time, { code: 'SIMULATION_FAILED', stage: simulation.stage, checks }); return result(false, 'SIMULATION_FAILED', { checks }); }
         candidate = freeze(copy(simulation.state));
@@ -259,7 +306,9 @@ export function execute(gate: Gate, request: ActionRequest): ExecutionResult {
       }
       const usage = freeze({ ...before.usage, [d.budgetId!]: used(before.usage, d.budgetId!) + 1 });
       const version = before.version + 1;
-      const payload = { beforeStateHash: stateDigest(before), afterStateHash: hashValue({ state: candidate, version, taskCount }), decision: d, taskCount };
+      const payload = { beforeStateHash: stateDigest(before), afterStateHash: hashValue({ state: candidate, version, taskCount }), decision: d, taskCount,
+        assurance: before.assurance ? { attestationHash: before.assurance.attestationHash, evidenceHash: before.assurance.evidenceHash,
+          requirementHash: before.assurance.requirementHash, overrodeSelfReport: ASSURED_ACTIONS.includes(req.action) } : null };
       // Prepare every fallible hash before changing domain state or its ledger.
       hashValue(payload);
       commit(cell, { state: candidate, taskCount, usage, version,
@@ -315,8 +364,7 @@ export function revokeApproval(gate: Gate, id: string): void {
     event(cell, 'Control', 'trusted-adapter', time, { control: 'RevokeApproval', id });
   });
 }
-export function setCurrentPlan(gate: Gate, plan: BoundPlan): void {
-  locked(gate, cell => {
+export function setCurrentPlan(gate: Gate, plan: BoundPlan): void {  locked(gate, cell => {
     hashValue(plan);
     const clean = plan, s = cell.value;
     planCheck(clean, s.linked);
@@ -326,5 +374,32 @@ export function setCurrentPlan(gate: Gate, plan: BoundPlan): void {
     const time = clock(cell);
     commit(cell, { plan: freeze(clean), version: s.version + 1, requests: freeze({}) });
     event(cell, 'Control', 'trusted-adapter', time, { control: 'SetCurrentPlan', previousPlanHash: s.plan.hash, planHash: clean.hash });
+  });
+}
+/**
+ * 由受信适配器切换当前凭证（例如 CRA 重新复核后）。旧批准因请求摘要含凭证而失效。
+ * 撤销/过期由注册表自身评估，这里只更换引用，不产生新凭证。
+ */
+export function setAssurance(gate: Gate, binding: AssuranceBinding): void {
+  locked(gate, cell => {
+    const s = cell.value;
+    if (!record(binding) || !text(binding.attestationHash) || !text(binding.evidenceHash) || !text(binding.requirementHash)) {
+      fail('INVALID_ASSURANCE', 'Assurance binding requires registry, attestation, evidence and requirement');
+    }
+    try { inspect(binding.registry, binding.attestationHash); }
+    catch (error) { fail('INVALID_ASSURANCE', error instanceof GilError ? error.message : 'Assurance must be issued in this process'); }
+    if (binding.requirementHash !== s.plan.requirementHash) fail('REQUIREMENT_MISMATCH', 'Assurance must bind the current plan requirement');
+    const time = clock(cell);
+    // 只有对当前证据有效且为 Pass 的凭证才能成为当前凭证；撤销/过期/Unknown 均拒绝。
+    const evidence = typeof s.state.currentEvidenceHash === 'string' ? s.state.currentEvidenceHash : '';
+    if (binding.evidenceHash !== evidence) fail('EVIDENCE_CHANGED', 'Assurance must bind the currently submitted evidence');
+    const candidate = { ...s, assurance: { registry: binding.registry, attestationHash: binding.attestationHash,
+      evidenceHash: binding.evidenceHash, requirementHash: binding.requirementHash } } as Internal;
+    const attestation = attestationCheck(candidate);
+    if (!attestation.ok) fail(attestation.code, `Current attestation is not a valid pass: ${attestation.reasons.join(',')}`);
+    commit(cell, { assurance: Object.freeze({ registry: binding.registry, attestationHash: binding.attestationHash,
+      evidenceHash: binding.evidenceHash, requirementHash: binding.requirementHash }), version: s.version + 1, requests: freeze({}) });
+    event(cell, 'Control', 'trusted-adapter', time, { control: 'SetAssurance',
+      previousAttestationHash: s.assurance?.attestationHash ?? null, attestationHash: binding.attestationHash, evidenceHash: binding.evidenceHash });
   });
 }

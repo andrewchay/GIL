@@ -6,6 +6,7 @@
   "engines": { "node": ">=24.0.0" },
   "scripts": {
     "test": "node --test test/*.test.ts",
+    "demo:assurance": "node src/cli.ts demo-assurance",
     "demo:delegation": "node src/cli.ts demo-delegation",
     "clarify:clinical": "node src/cli.ts clarify docs/clinical-operations/monitoring-remediation/interpretation.gil conformance/clinical-interpretation.json",
     "demo:clarification": "node src/cli.ts clarify docs/clinical-operations/monitoring-remediation/interpretation.gil conformance/clinical-interpretation.json --demo-answer",
