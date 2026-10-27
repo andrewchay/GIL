@@ -28,10 +28,16 @@
 - 闸门受信字段白名单 `TRUSTED_INPUT_KEYS = ['actionAt','blockers','deadline','escalation']`：调用者传任一个即拒绝，不做"默认已解除"推断。
 - 改 `workflow.gil` 输入/状态会连带破坏 `test/parser.test.ts` 的计数断言与 `conformance/clinical-core.json` 的输入夹具，改 spec 后必须同步。
 - GIL 保留字含 `open`、`source`、`requires` 等：ontology 字段不能叫这些名字（用 `openCount`/`sourceRef`）。每个 concept 必须有且仅有一个 `identity` 字段。
+- Phase5 RL 层：`parseEnvironment` 解析 `environment` 文档；`in` 与 `within 100.steps` 只在 RL 模式启用（`this.rl`），Core 保持严格。`not x in S` 必须绑定整个比较表达式，否则会错解成 `(!x) in S`。
+- RL 静态检查拒绝：概率和≠1、`eventually` 无 `within`、无 objective、无正的任务奖励、约束非 `always`、写未声明状态。
+- RL 运行时：`cutoff` 与 `failure` 严格分离；`once entered(...)` 只在首次进入领取；奖励分 term 记账；随机性来自显式 seed（mulberry32），同 seed 必得同 `traceHash`。外部标识符一律视为宿主原语，GIL 不发明语义。
+- Phase5 Workspace 层：`contentHash` 只覆盖 `mediaType`+`payloadHash`（显示名不是身份）；来源引用必须绑定已登记工件（`DANGLING_SOURCE_REF`）；记忆必须有 purpose/provenance/retention（`MEMORY_WITHOUT_PROVENANCE`）；纠正产生新 revision 并把旧版本标 `Superseded`（内容不变）；删除后 `contextFor` 排除但历史保留；`legal-hold` 拒绝普通删除。
+- Workspace 是过程内能力对象：`JSON.parse(JSON.stringify(ws))` 必须被 `UNTRUSTED_WORKSPACE` 拒绝。`access` 只参与过滤，不是鉴权。
 - CLI 模拟必须保留 `authorization: not-implemented` 标记。CLOSED 只表示合成 Core 契约路径，不能代替 CTM 权限、批准或实际凭证。
 - runtime 动态绑定使用安全自有属性，禁止原型继承充当事实；Int 限 safe integer，Decimal 为有舍入的 Number，不用于精确临床或金额计算。
 - 模拟先检查前状态再检查候选不变量；失败/Unknown 不提交。ensures 仅根状态 prime 等式赋值，所有 RHS 读取前状态。
 - canonical 摘要格式 `sha256:<hex>`，含 profile，数组保序；AST 摘要不证明语义等价。
+- 六层实现状态：Core / Exchange / Delegation / Assurance 有完整原型；Workspace 与 RL 有最小一致实现（无持久化、无 POMDP、无视图投影）。`lexiconDef`、`Option<T>`/`Entity<T>` 构造类型仍未实现，因此 `examples/酒店预订.gil` 不可解析。
 - 本切片角色：协调员提交、CRA 复核、CTM 关闭；Agent 只检查建议受限分派。A01–A30 见 `docs/clinical-operations/monitoring-remediation/coverage.md`（29 已实现、1 部分、0 未实现）；未标"已实现"的条目不得视为通过。
 
 ## 核心架构与文件结构
@@ -58,4 +64,4 @@
    - `Option<T>`（值可不存在）、`Unknown`（三值逻辑中信息不足）、`open`（缺失待定参数）、`ambiguous`（多候选 AST）、`ill-formed`（语法/类型错误）严格区分，不得合并为 `null` 或 `false`。
    - 可补偿（`compensable`）不等于可逆（`reversible`）。
 3. **不可变与内容寻址**：所有跨层引用必须绑定版本与 `ContentHash`；已接受工件、事件、审批、验证凭证均不可原地修改，变更必须产生新哈希并显式评估是否失效。
-4. **语法范围区分**：`grammar/GIL-Core.ebnf` 仅覆盖 `GIL-Core`（`ontology`/`lexicon`/`spec`/`interpretation`）；`delegate`（Delegation 层）和 `environment`（GIL-RL 层）的语法目前在对应规范文档和 `examples/` 中示意，尚未合入 `GIL-Core.ebnf`。
+4. **语法范围区分**：`grammar/GIL-Core.ebnf` 仅覆盖 `GIL-Core`（`ontology`/`lexicon`/`spec`/`interpretation`）。`environment`（RL 层）已由 `parseEnvironment` 实现，但**有意不并入** `GIL-Core.ebnf`——它是 RL 层语法。`delegate`（Delegation 层）只有规范示意，无解析实现。

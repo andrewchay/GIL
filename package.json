@@ -6,6 +6,8 @@
   "engines": { "node": ">=24.0.0" },
   "scripts": {
     "test": "node --test test/*.test.ts",
+    "demo:workspace": "node src/cli.ts demo-workspace",
+    "demo:rl": "node src/cli.ts demo-rl",
     "demo:governance": "node src/cli.ts demo-governance",
     "demo:assurance": "node src/cli.ts demo-assurance",
     "demo:delegation": "node src/cli.ts demo-delegation",

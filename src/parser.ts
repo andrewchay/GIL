@@ -1,6 +1,7 @@
 import { GilError } from './ast.ts';
 import type { Action, Binding, Claim, Concept, Document, Expr, Ontology, Relation, Spec } from './ast.ts';
 import type { Interpretation } from './interpretation-ast.ts';
+import type { Environment, RlAction } from './rl-ast.ts';
 
 interface Token { text: string; kind: 'id' | 'number' | 'string' | 'symbol' | 'eof'; line: number; column: number }
 const reserved = new Set(`ontology version concept identity relation constraint type lexicon phrase candidate candidates spec use as for context input output state knowledge assert assume open ambiguous disputed operationalize source inferred asserted assumed goals achieve prefer minimize maximize priority constraints require action requires ensures writes preserves outcomes failure atomic retryable reversibility reversible compensable irreversible compensate verification verify by under interpretation ground of delegate environment forall exists in within after entered changed always eventually not true false`.split(' '));
@@ -59,7 +60,9 @@ function lex(source: string): Token[] {
 class Parser {
   tokens: Token[];
   index = 0;
-  constructor(source: string) { this.tokens = lex(source); }
+  /** GIL-RL 专属语法（in 运算符、within 界限）只在环境文档中启用，Core 保持严格。 */
+  rl: boolean;
+  constructor(source: string, rl = false) { this.tokens = lex(source); this.rl = rl; }
   peek(): Token { return this.tokens[this.index]; }
   take(): Token { const token = this.peek(); if (token.kind !== 'eof') this.index++; return token; }
   is(text: string): boolean { return this.peek().kind !== 'string' && this.peek().text === text; }
@@ -106,6 +109,7 @@ class Parser {
     let document: Document;
     if (this.accept('ontology')) document = this.ontology();
     else if (this.accept('spec')) document = this.spec();
+    else if (this.accept('environment')) { this.rl = true; document = this.environment(); }
     else this.unsupported('Top-level document');
     if (this.peek().kind !== 'eof') fail(this.peek(), 'Only one top-level document is allowed');
     return document;
@@ -218,6 +222,140 @@ class Parser {
     this.expect('}'); return result;
   }
 
+  /** GIL-RL 环境文档。所有章节最多出现一次；发生顺序不作要求。 */
+  environment(): Environment {
+    const name = this.path().join('.'); this.expect('version'); const version = this.string(); this.expect('{');
+    const state: Environment['state'] = [], initial: Environment['initial'] = [], actions: RlAction[] = [];
+    const goals: Environment['goals'] = [], constraints: Environment['constraints'] = [];
+    const observation: Environment['observation'] = { full: false, visible: [] };
+    const termination: Environment['termination'] = {};
+    let reward: Environment['reward'] | undefined, objective: Environment['objective'];
+    const sections = new Set<string>();
+    const SECTIONS = ['state', 'observation', 'initial', 'action', 'termination', 'goals', 'constraints', 'reward', 'objective'];
+    while (!this.is('}')) {
+      const token = this.peek(), section = token.text;
+      if (!SECTIONS.includes(section)) this.unsupported('Environment section');
+      this.take(); this.unique(sections, section, token, 'section'); this.expect('{');
+      const names = new Set<string>();
+      while (!this.is('}')) {
+        const itemToken = this.peek();
+        if (section === 'state') {
+          const item = this.binding(true); this.unique(names, item.name, itemToken, 'state binding'); this.expect(';'); state.push(item);
+        } else if (section === 'observation') {
+          // 首版只支持 `fullState;` 或裸可见变量名；类型化观察不在最小子集内。
+          const item = this.name(); this.unique(names, item, itemToken, 'observation item'); this.expect(';');
+          if (item === 'fullState') observation.full = true; else observation.visible.push(item);
+        } else if (section === 'initial') {
+          initial.push(this.expression()); this.expect(';');
+        } else if (section === 'action') {
+          const item = this.rlAction(); this.unique(names, item.name, itemToken, 'action'); actions.push(item);
+        } else if (section === 'termination') {
+          const kind = this.peek().text;
+          if (!['success', 'failure', 'cutoff'].includes(kind)) this.unsupported('Termination clause');
+          this.take(); if (!this.accept('when')) this.unsupported('Termination without when');
+          this.unique(names, kind, itemToken, 'termination clause');
+          termination[kind as 'success' | 'failure' | 'cutoff'] = this.expression(); this.expect(';');
+        } else if (section === 'goals') {
+          if (!this.accept('achieve')) this.unsupported('goals declaration');
+          const goal = this.name(); this.unique(names, goal, itemToken, 'goal'); this.expect(':');
+          goals.push({ name: goal, expr: this.expression() }); this.expect(';');
+        } else if (section === 'constraints') {
+          if (!this.accept('require')) this.unsupported('constraints declaration');
+          const constraint = this.name(); this.unique(names, constraint, itemToken, 'constraint'); this.expect(':');
+          constraints.push({ name: constraint, expr: this.expression() }); this.expect(';');
+        } else if (section === 'reward') {
+          if (reward === undefined) reward = { discount: 1, aggregation: 'expectedDiscountedReturn', terms: [] };
+          if (this.accept('discount')) { reward.discount = this.number(); this.expect(';'); }
+          else if (this.accept('horizon')) { reward.horizon = this.quantity(); this.expect(';'); }
+          else if (this.accept('aggregation')) { reward.aggregation = this.name(); this.expect(';'); }
+          else if (this.accept('term')) { reward.terms.push(this.rewardTerm()); }
+          else this.unsupported('Reward clause');
+        } else {
+          if (objective !== undefined) fail(itemToken, 'Duplicate objective clause', 'DUPLICATE_CLAUSE');
+          this.expect('maximize'); const maximize = this.name();
+          this.expect('subjectTo'); const subjectTo: string[] = [];
+          do { subjectTo.push(this.name()); } while (this.accept(','));
+          this.expect(';'); objective = { maximize, subjectTo };
+        }
+      }
+      this.expect('}');
+    }
+    this.expect('}');
+    if (reward === undefined) fail({ text: '', kind: 'eof', line: 0, column: 0 }, 'Environment requires a reward section');
+    return { kind: 'environment', name, version, state, observation, initial, actions, termination,
+      goals, constraints, reward, objective };
+  }
+
+  rewardTerm(): Environment['reward']['terms'][number] {
+    const name = this.name(); this.expect(':'); const amount = this.signedNumber();
+    if (this.accept('once')) {
+      if (!this.accept('entered')) this.unsupported('Reward event');
+      this.expect('('); const predicate = this.expression(); this.expect(')'); this.expect(';');
+      return { name, amount, kind: 'once-entered', predicate };
+    }
+    if (this.accept('per')) {
+      const unit = this.name(); this.expect(';');
+      if (unit !== 'step') fail(this.peek(), 'Only per step aggregation is inside gil-rl-environment-0.1', 'UNSUPPORTED_SYNTAX');
+      return { name, amount, kind: 'per-step' };
+    }
+    return this.unsupported('Reward term timing');
+  }
+
+  /** 带单位的量：`100.steps`。单位目前只允许 steps。 */
+  quantity(): { value: number; unit: string } {
+    const value = this.number(); this.expect('.'); const unit = this.name();
+    if (unit !== 'steps') fail(this.peek(), 'Only steps is a supported bound unit', 'UNSUPPORTED_SYNTAX');
+    return { value, unit };
+  }
+
+  number(): number {
+    const token = this.peek();
+    if (token.kind !== 'number') fail(token, 'Expected a number');
+    const value = Number(this.take().text);
+    if (!Number.isFinite(value)) fail(token, 'Non-finite number');
+    return value;
+  }
+
+  signedNumber(): number {
+    const negative = this.accept('-');
+    const value = this.number();
+    return negative ? -value : value;
+  }
+
+  /** 与 Core action 相同，额外允许 outcomes 块（有限随机转移）。 */
+  rlAction(): RlAction {
+    this.expect('action'); const name = this.name(), params = this.parameters();
+    if (this.is('->')) this.unsupported('Action return type');
+    const result: RlAction = { name, params, requires: [], ensures: [], writes: [], atomic: false, outcomes: [] };
+    const singleton = new Set<string>();
+    while (!this.is(';')) {
+      const token = this.peek();
+      if (this.accept('requires')) result.requires.push(this.expression());
+      else if (this.accept('ensures')) result.ensures.push(this.expression());
+      else if (this.accept('writes')) {
+        this.unique(singleton, 'writes', token, 'action clause');
+        const references = new Set<string>();
+        do {
+          const refToken = this.peek(), ref = this.path().join('.');
+          this.unique(references, ref, refToken, 'write target'); result.writes.push(ref);
+        } while (this.accept(','));
+      } else if (this.accept('atomic')) {
+        this.unique(singleton, 'atomic', token, 'action clause'); result.atomic = true;
+      } else if (this.accept('outcomes')) {
+        this.unique(singleton, 'outcomes', token, 'action clause');
+        this.expect('{');
+        while (!this.is('}')) {
+          const branchToken = this.peek(), probability = this.number();
+          if (probability < 0 || probability > 1) fail(branchToken, 'Outcome probability must be within [0,1]');
+          this.expect('->'); const ensures = this.expression(); this.expect(';');
+          result.outcomes.push({ probability, ensures });
+        }
+        this.expect('}');
+      } else this.unsupported('Action clause');
+    }
+    this.expect(';'); return result;
+  }
+
   action(): Action {
     this.expect('action'); const name = this.name(), params = this.parameters();
     if (this.is('->')) this.unsupported('Action return type');
@@ -244,7 +382,8 @@ class Parser {
     let left = this.prefix();
     while (true) {
       const token = this.peek();
-      const level = token.kind === 'symbol' ? precedence[token.text] : undefined;
+      const level = token.kind === 'symbol' ? precedence[token.text]
+        : this.rl && token.text === 'in' ? 4 : undefined;
       if (level === undefined || level < min) break;
       this.take();
       const right = this.expression(token.text === '=>' ? level : level + 1);
@@ -255,7 +394,16 @@ class Parser {
   prefix(): Expr {
     const token = this.peek();
     if (['!', '-', 'not', 'always', 'eventually'].some(t => this.is(t))) {
-      this.take(); return { kind: 'unary', op: token.text === 'not' ? '!' : token.text, arg: this.prefix() };
+      this.take(); const op = token.text === 'not' ? '!' : token.text;
+      // RL 里 not/always/eventually 必须绑定到整个比较表达式，否则 `not x in S` 会错解成 `(!x) in S`。
+      if (this.rl && op !== '-') {
+        if (op === 'eventually' && this.accept('within')) {
+          const bound = this.quantity();
+          return { kind: 'unary', op, arg: { kind: 'bounded', value: bound.value, unit: bound.unit, arg: this.expression(4) } };
+        }
+        return { kind: 'unary', op, arg: this.expression(4) };
+      }
+      return { kind: 'unary', op, arg: this.prefix() };
     }
     if (this.accept('(')) { const expr = this.expression(); this.expect(')'); return expr; }
     if (token.kind === 'string') { this.take(); return { kind: 'literal', value: token.text }; }
@@ -281,6 +429,13 @@ class Parser {
 }
 
 export function parse(source: string): Document { return new Parser(source).document(); }
+
+/** GIL-RL 环境文档入口：启用 in 运算符与 within 界限。 */
+export function parseEnvironment(source: string): Environment {
+  const document = new Parser(source, true).document();
+  if (document.kind !== 'environment') throw new GilError('CLI_ERROR', 'Expected an environment document');
+  return document;
+}
 
 /** Independent Exchange entry point; the Core Document parser remains unchanged. */
 export function parseInterpretation(source: string): Interpretation { return new Parser(source).interpretation(); }
