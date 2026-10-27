@@ -12,11 +12,20 @@ import { sourceArtifact, hashValue } from '../src/interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from '../src/exchange.ts';
 import { bindPlan } from '../src/plans.ts';
 import { createGate, snapshot, authorize, execute, requestHash, approve, revokeGrant, revokeApproval, setCurrentPlan } from '../src/delegation.ts';
+import { createBlockerLedger } from '../src/blockers.ts';
+import { createObligation } from '../src/deadlines.ts';
 
 const base = new URL('../docs/clinical-operations/monitoring-remediation/', import.meta.url);
 const linked = link(parse(readFileSync(new URL('workflow.gil', base), 'utf8')) as Spec,
   [parse(readFileSync(new URL('ontology.gil', base), 'utf8')) as Ontology]);
 const core = JSON.parse(readFileSync(new URL('../conformance/clinical-core.json', import.meta.url), 'utf8'));
+// Phase5 受信工件：调用者输入里不允许出现这些键，它们只能来自闸门注入。
+const trustedKeys = ['actionAt', 'blockers', 'deadline', 'escalation'];
+const callerInputs = (() => { const copy = structuredClone(core.inputs); for (const key of trustedKeys) delete copy[key]; return copy; })();
+const blockers = createBlockerLedger({ findingId: 'FINDING-DEMO', entries: [
+  { id: 'B-POLICY', target: 'recordReviewPass', kind: 'policy', owner: 'coord', resolutionAuthority: 'cra', state: 'RESOLVED', resolvedBy: 'cra', resolvedAt: 1 },
+  { id: 'B-DISPUTE', target: 'closeFinding', kind: 'dispute', owner: 'cra', resolutionAuthority: 'ctm', state: 'RESOLVED', resolvedBy: 'ctm', resolvedAt: 2 } ] });
+const obligation = createObligation({ findingId: 'FINDING-DEMO', dueAt: 100000, sourceRef: 'POLICY-TIMELINE', sourceVersion: 'V1', policy: 'BLOCK-CLOSURE' }, 0);
 const scope = { studyId: 'STUDY-DEMO', siteId: 'SITE-DEMO', findingId: 'FINDING-DEMO' };
 const human = { actorId: 'human', kind: 'human' as const, mayAnswer: true, mayAccept: true };
 const identities: Identity[] = [
@@ -45,10 +54,11 @@ function plan(version = '1') {
 function fixture(patch: Partial<GateConfig> = {}) {
   let time = 100;
   const config: GateConfig = { linked, state: initialize(linked, core.initialState), plan: plan(),
-    identities: structuredClone(identities), grants: identities.map(i => grant(i.actorId)), now: () => time, ...patch };
+    identities: structuredClone(identities), grants: identities.map(i => grant(i.actorId)), now: () => time,
+    blockers, deadline: obligation, ...patch };
   return { gate: createGate(config), config, time: (n: number) => { time = n; } };
 }
-function req(gate: Gate, actorId: string, action: string, params = {}, inputs = core.inputs): ActionRequest {
+function req(gate: Gate, actorId: string, action: string, params = {}, inputs = callerInputs): ActionRequest {
   const s = snapshot(gate);
   return { actorId, action, params: structuredClone(params), inputs: structuredClone(inputs), expectedStateHash: s.stateHash, expectedPlanHash: s.planHash };
 }
@@ -180,7 +190,7 @@ test('CRA separation and input requirement/scope checks', () => {
   const f = fixture({ submitterId: 'cra' });
   assert.equal(authorize(f.gate, req(f.gate, 'cra', 'recordReviewPass')).code, 'REVIEW_SEPARATION');
   for (const patch of [{ siteId: 'OTHER' }, { requirementHash: 'OTHER' }]) {
-    assert.equal(authorize(f.gate, req(f.gate, 'coord', 'submitEvidence', {}, { ...core.inputs, stagedEvidence: { ...core.inputs.stagedEvidence, ...patch } })).code, 'INPUT_SCOPE_MISMATCH');
+    assert.equal(authorize(f.gate, req(f.gate, 'coord', 'submitEvidence', {}, { ...callerInputs, stagedEvidence: { ...core.inputs.stagedEvidence, ...patch } })).code, 'INPUT_SCOPE_MISMATCH');
   }
 });
 

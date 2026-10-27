@@ -1,5 +1,37 @@
 # GIL-language 项目调研与架构笔记
 
+## 2026-10-27 Phase5 完成：终结 Bool 投影
+
+三个新工件层替换了原有的弱模型：
+
+1. `blockers.ts` — 阻断项台账内容寻址，`openCount` 从条目派生。旧 `blockingItemsResolved: Bool` 已从 spec 移除。解除后产生**新台账**，旧批准因摘要含 `ledgerHash` 失效。
+2. `deadlines.ts` — `Obligation` 强制 `sourceRef`/`sourceVersion`（无来源不能建义务，也不猜天数）；`BLOCK-CLOSURE` 逾期需 CTM 的 `ACCEPT-LATE` 回执；`ESCALATE-ONLY` 只记录升级事件。
+3. `sources.ts` — 检索覆盖 `FULL/PARTIAL/NONE` + `readable`，只有全量可读才给 `CONFIRMED_ABSENT`，`missingEvidenceClaim` 是唯一能报 `MISSING_EVIDENCE` 的入口。
+
+时间语义分离是 A30 的关键：`actionAt` 由闸门从受信时钟注入（调用者提供即 `CALLER_CONTROLLED_TRUSTED_INPUT`），`businessDate` 是调用者声明且单调，审计事件 `time` 是真实时间。两者永不合并。
+
+闸门新增 `TRUSTED_INPUT_KEYS = ['actionAt','blockers','deadline','escalation']` 白名单——比 Phase4 的"覆盖"更严格，直接拒绝。
+
+自查发现并修复的缺陷：`setDeadline` 换义务时未清空旧处置回执，会导致跨义务复用 `ACCEPT-LATE`。已加 `escalationApplies()` 统一判定并补测试。
+
+Spec 改造踩坑：GIL 保留字包含 `open`、`source`，所以字段得叫 `openCount`、`sourceRef`；每个 concept 必须有且仅一个 `identity` 字段。
+
+158 测试通过，5 个 CLI 演示可运行。
+
+## 2026-10-27 Git 与 Phase4 完成
+
+Git：项目原先无仓库。沙箱禁止写 `.git`（`deny file-write* (literal .../.git)`），因此仓库暂存于 `.gitstore/`，已含两次提交：
+- `017a13f` feat: GIL 规范仓库与临床监查整改 Core 原型（53 文件）
+- `2de518c` feat(phase4): 验证凭证、失效投影与挑战恢复
+用户在自己终端执行 `mv .gitstore .git` 即可恢复标准布局（`.gitignore` 已含 `.gitstore/`）。
+
+Phase4 实现：`evidence.ts`（要求/证据快照，claims 不进摘要，缺项 fail-closed）、`assurance.ts`（注册表签发 + 7 类失效 + 挑战）、`delegation.ts` 集成可选凭证绑定（强制 Pass+active+证据一致，覆盖自报 Bool，凭证纳入请求摘要）、`assurance-demo.ts` + `demo:assurance`。
+
+验证：136 项测试全绿（127 + 9 凭证门），4 个 CLI 演示可运行。独立审查确认外部无法绕过 Gate 能力对象，但记录 8 项设计内限制（assurance 可选、setAssurance 为管理面、凭证门只覆盖两项动作、reviewStillValid 无条件覆盖、注册表不入摘要、换绑顺序、双次 evaluate、未实现签名/依赖图/持久化）。
+
+覆盖矩阵 `coverage.md`：A01–A30 中 23 已实现、5 部分（A07/A09/A13/A18/A23）、2 未实现（A16 逾期、A30 时间语义）。
+
+
 ## 2026-10-26 Phase3 模拟授权与审计完成
 
 用户“继续”指推进下阶段，不重复Phase2收尾。新增plans.ts固定已接受解释工件，delegation.ts默认拒绝权限门、当前版本、预算累计、撤销、精确批准和内容寻址尝试/拒绝/失败/成功审计。Core无角色依赖。

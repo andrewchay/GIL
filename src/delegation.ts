@@ -6,6 +6,11 @@ import { hashValue } from './interpretation.ts';
 import { simulate } from './runtime.ts';
 import { validatePlan } from './plans.ts';
 import { evaluate, inspect } from './assurance.ts';
+import { blockerStatus, validateBlockerLedger } from './blockers.ts';
+import { acknowledgeEscalation, deadlineStatus, escalationView, obligationView, recordBusinessDate, validateObligation } from './deadlines.ts';
+import { emptyBusinessDates } from './deadlines.ts';
+import type { BusinessDateRecord, EscalationAck, Obligation } from './deadlines.ts';
+import type { BlockerLedger } from './blockers.ts';
 import type { State } from './runtime.ts';
 import type { Approval, ActionRequest, AssuranceBinding, AuditEvent, BoundPlan, Decision, GateConfig, GateSnapshot, Grant, Identity, Scope } from './delegation-ast.ts';
 
@@ -20,6 +25,14 @@ interface Internal {
   usage: Record<string, number>; revokedGrants: string[]; revokedApprovals: string[];
   approvals: StoredApproval[]; requests: Record<string, RememberedRequest>; events: AuditEvent[];
   assurance: AssuranceBinding | null;
+  /** Phase5：受信阻断项台账，缺省表示未配置（复核/关闭一律拒绝）。 */
+  blockers: BlockerLedger | null;
+  /** Phase5：受信期限义务，缺省表示未配置。 */
+  deadline: Obligation | null;
+  /** Phase5：已签发的越期处置回执；撤销由重新签发替代。 */
+  escalation: EscalationAck | null;
+  /** Phase5：业务日期簿，真实执行时间另行保存在审计 time 字段。 */
+  businessDates: BusinessDateRecord;
 }
 interface Cell { value: Internal; busy: boolean; lastTime: number; reentered: boolean }
 const gates = new WeakMap<Gate, Cell>();
@@ -76,7 +89,47 @@ function digest(s: Internal, req: ActionRequest): string {
     specHash: s.plan.specHash, ontologyHashes: s.plan.ontologyHashes, version: s.version,
     // 凭证内容进入请求摘要：更换凭证或证据摘要后旧批准不再适用。
     assurance: s.assurance ? { attestationHash: s.assurance.attestationHash,
-      evidenceHash: s.assurance.evidenceHash, requirementHash: s.assurance.requirementHash } : null });
+      evidenceHash: s.assurance.evidenceHash, requirementHash: s.assurance.requirementHash } : null,
+    // Phase5：阻断项台账、期限义务与处置回执同样进入摘要，解除/换期后旧批准失效。
+    blockers: s.blockers ? s.blockers.ledgerHash : null,
+    deadline: s.deadline ? s.deadline.contentHash : null,
+    escalation: s.escalation ? s.escalation.ackId : null });
+}
+
+/** 受信输入：只能由 gate 从受信工件注入，调用者提供即拒绝。 */
+const TRUSTED_INPUT_KEYS: readonly string[] = ['actionAt', 'blockers', 'deadline', 'escalation'];
+/** 需要阻断项台账的动作。 */
+const BLOCKER_ACTIONS: readonly string[] = ['recordReviewPass', 'closeFinding'];
+/** 需要期限义务的动作。 */
+const DEADLINE_ACTIONS: readonly string[] = ['closeFinding'];
+
+/** 回执只在属于当前义务时才算处置；换义务后旧回执必须失效。 */
+function escalationApplies(s: Internal): EscalationAck | null {
+  if (!s.escalation || !s.deadline) return null;
+  return s.escalation.obligationHash === s.deadline.contentHash ? s.escalation : null;
+}
+
+function declaresInput(s: Internal, name: string): boolean {
+  return s.linked.spec.input.some(binding => binding.name === name);
+}
+
+/**
+ * 构造交给 Core 的输入：调用者字段 + 受信注入。
+ * 真实执行时间、阻断状态、期限视图与处置回执全部来自受信工件，调用者无法自报。
+ */
+function trustedInputs(s: Internal, raw: State, time: number): State {
+  const inputs: State = { ...raw };
+  // 只注入 spec 真正声明的字段，避免向其他 spec 注入未声明绑定。
+  if (s.blockers && declaresInput(s, 'blockers')) inputs.blockers = blockerStatus(s.blockers) as unknown as State;
+  if (s.deadline) {
+    if (declaresInput(s, 'deadline')) inputs.deadline = obligationView(s.deadline) as unknown as State;
+    if (declaresInput(s, 'actionAt')) inputs.actionAt = time;
+    const applicable = escalationApplies(s);
+    if (applicable && declaresInput(s, 'escalation')) {
+      inputs.escalation = escalationView(applicable, s.deadline) as unknown as State;
+    } else delete inputs.escalation;
+  }
+  return inputs;
 }
 /**
  * 凭证门：只有受信注册表签发的凭证、对当前证据/要求/规约有效且为 Pass 才通过。
@@ -136,7 +189,9 @@ export function createGate(config: GateConfig): Gate {
   // The plan is an issued capability. Validate original provenance, not its JSON copy.
   // 能力对象（凭证注册表）不参与内容寻址，也不复制：JSON 摘要无法承载签发权威。
   const hashable: Record<string, unknown> = Object.create(null);
-  for (const [key, value] of Object.entries(data)) if (key !== 'assurance') hashable[key] = value;
+  // 能力与受信工件对象不参与内容寻址：JSON 摘要无法承载 provenance。
+  const uncopyable = ['assurance', 'blockers', 'deadline'];
+  for (const [key, value] of Object.entries(data)) if (!uncopyable.includes(key)) hashable[key] = value;
   hashValue(hashable);
   const originalPlan = data.plan as BoundPlan;
   validatePlan(originalPlan, data.linked as GateConfig['linked']);
@@ -152,6 +207,21 @@ export function createGate(config: GateConfig): Gate {
     if (raw.requirementHash !== clean.plan.requirementHash) fail('INVALID_ASSURANCE', 'Assurance must bind the plan requirement');
     assurance = Object.freeze({ registry: raw.registry, attestationHash: raw.attestationHash,
       evidenceHash: raw.evidenceHash, requirementHash: raw.requirementHash });
+  }
+  // Phase5 受信工件：必须由本进程签发，且必须属于本 gate 的 finding。
+  let blockers: BlockerLedger | null = null;
+  if (data.blockers !== undefined) {
+    const raw = data.blockers as BlockerLedger;
+    try { validateBlockerLedger(raw); }
+    catch (error) { fail('INVALID_BLOCKERS', error instanceof GilError ? error.message : 'Blocker ledger must be issued in this process'); }
+    blockers = raw;
+  }
+  let deadline: Obligation | null = null;
+  if (data.deadline !== undefined) {
+    const raw = data.deadline as Obligation;
+    try { validateObligation(raw); }
+    catch (error) { fail('INVALID_DEADLINE', error instanceof GilError ? error.message : 'Obligation must be issued in this process'); }
+    deadline = raw;
   }
   if (!record(clean.linked) || !record(clean.state) || !Array.isArray(clean.identities) || !Array.isArray(clean.grants)) fail('INVALID_CONFIG', 'Missing gate data');
   const diagnostics = check(clean.linked);
@@ -172,6 +242,8 @@ export function createGate(config: GateConfig): Gate {
       || !Number.isSafeInteger(g.maxActions) || g.maxActions < 0) fail('INVALID_GRANT', 'Invalid grant, validity interval or budget');
     grantIds.add(g.id);
   }
+  if (blockers && blockers.findingId !== clean.plan.scope.findingId) fail('BLOCKER_SCOPE_MISMATCH', 'Blocker ledger must belong to the plan finding');
+  if (deadline && deadline.findingId !== clean.plan.scope.findingId) fail('DEADLINE_SCOPE_MISMATCH', 'Obligation must belong to the plan finding');
   if (!scopeRecord(clean.state.requirement, clean.plan.scope)
     || (clean.state.requirement as Record<string, unknown>).contentHash !== clean.plan.requirementHash
     || (clean.state.requirement as Record<string, unknown>).protocolVersion !== clean.plan.body.applicableProtocolVersion) fail('REQUIREMENT_MISMATCH', 'Current requirement must match plan');
@@ -182,7 +254,8 @@ export function createGate(config: GateConfig): Gate {
   const gate: Gate = Object.freeze({ kind: 'delegation-gate' });
   const value: Internal = Object.freeze({ linked: freeze(clean.linked), state: freeze(clean.state), plan: freeze(clean.plan),
     identities: freeze(clean.identities), grants: freeze(clean.grants), now, submitterId: clean.submitterId ?? '', reviewerId: clean.reviewerId ?? '',
-    version: 0, taskCount: 0, usage: freeze({}), revokedGrants: freeze([]), revokedApprovals: freeze([]), approvals: freeze([]), requests: freeze({}), events: freeze([]), assurance });
+    version: 0, taskCount: 0, usage: freeze({}), revokedGrants: freeze([]), revokedApprovals: freeze([]), approvals: freeze([]), requests: freeze({}), events: freeze([]),
+    assurance, blockers, deadline, escalation: null, businessDates: emptyBusinessDates() });
   gates.set(gate, { value, busy: false, lastTime: -Number.MAX_VALUE, reentered: false });
   // Validate the adapter while the capability is guarded; do not expose a half-created gate.
   try { locked(gate, clock); } catch (error) { gates.delete(gate); throw error; }
@@ -212,6 +285,26 @@ function decision(s: Internal, req: ActionRequest, time: number, needsApproval =
     if (!attestation.ok) return deny(attestation.code);
     if (s.state.currentEvidenceHash !== s.assurance.evidenceHash) return deny('EVIDENCE_CHANGED');
   }
+  // Phase5：受信输入不可由调用者提供；缺失即拒绝，不做“默认已解除”的推断。
+  for (const key of TRUSTED_INPUT_KEYS) {
+    if (Object.hasOwn(req.inputs, key)) return deny('CALLER_CONTROLLED_TRUSTED_INPUT');
+  }
+  if (BLOCKER_ACTIONS.includes(req.action) && declaresInput(s, 'blockers')) {
+    if (!s.blockers) return deny('BLOCKER_LEDGER_REQUIRED');
+    if (s.blockers.openIds.length) return deny('BLOCKERS_OPEN');
+  }
+  if (DEADLINE_ACTIONS.includes(req.action) && declaresInput(s, 'deadline')) {
+    if (!s.deadline) return deny('DEADLINE_REQUIRED');
+    const deadline = deadlineStatus(s.deadline, time);
+    // 逾期阻断只由同一义务的显式 ACCEPT-LATE 处置解除；REMEDIATE 不解除期限阻断。
+    const applicable = escalationApplies(s);
+    const acceptedLate = applicable !== null && applicable.disposition === 'ACCEPT-LATE';
+    if (deadline.blocked && !acceptedLate) return deny('DEADLINE_EXCEEDED');
+  }
+  // 业务日期只能持平或前进：回填更早日期被拒绝，历史不可改写。
+  const businessDate = req.inputs.businessDate;
+  if (typeof businessDate === 'number' && Number.isFinite(businessDate)
+    && businessDate < s.businessDates.lastBusinessDate) return deny('BACKDATED_BUSINESS_DATE');
   if (actor.role === 'CRA' && actor.actorId === s.submitterId) return deny('REVIEW_SEPARATION');
   if (req.action === 'recordAcceptedPlan' && req.params.planHash !== s.plan.hash) return deny('PLAN_MISMATCH');
   if (req.inputs.stagedEvidence !== undefined && (!scopeRecord(req.inputs.stagedEvidence, s.plan.scope)
@@ -278,7 +371,15 @@ export function execute(gate: Gate, request: ActionRequest): ExecutionResult {
       event(cell, 'Attempt', '', time, { rejectedInput: true }); event(cell, 'Denied', '', time, { decision: d });
       return result(false, d.code);
     }
-    event(cell, 'Attempt', req.actorId, time, { requestHash: digest(cell.value, req), request: req });
+    event(cell, 'Attempt', req.actorId, time, { requestHash: digest(cell.value, req), request: req,
+      businessDate: typeof req.inputs.businessDate === 'number' ? req.inputs.businessDate : null });
+    // 逾期只作为事实写入升级事件：不伪造复核结论，也不自动解除任何阻断。
+    const overdue = cell.value.deadline && DEADLINE_ACTIONS.includes(req.action)
+      ? deadlineStatus(cell.value.deadline, time) : null;
+    if (overdue && overdue.overdue) {
+      event(cell, 'Escalation', 'trusted-adapter', time, { escalation: 'OVERDUE', reason: overdue.reason,
+        dueAt: overdue.dueAt, sourceRef: overdue.sourceRef, sourceVersion: overdue.sourceVersion, policy: overdue.policy });
+    }
     d = decision(cell.value, req, time);
     if (d.outcome !== 'Allow') { event(cell, d.outcome === 'Deny' ? 'Denied' : 'Escalated', req.actorId, time, { decision: d }); return result(false, d.code); }
     const before = cell.value;
@@ -289,9 +390,11 @@ export function execute(gate: Gate, request: ActionRequest): ExecutionResult {
         if (!Number.isSafeInteger(taskCount + 1)) fail('TASK_LIMIT', 'Task counter overflow');
         taskCount++;
       } else {
-        // 凭证有效时以凭证结果覆盖调用者的 reviewStillValid，杜绝自报通过。
-        const inputs = before.assurance && ASSURED_ACTIONS.includes(req.action)
-          ? freeze({ ...req.inputs, reviewStillValid: true }) : req.inputs;
+        // 凭证有效时以凭证结果覆盖调用者的 reviewStillValid，杜绝自报通过；
+        // 阻断状态、期限视图与真实执行时间一律从受信工件注入，不采信调用者字段。
+        const merged = before.assurance && ASSURED_ACTIONS.includes(req.action)
+          ? { ...req.inputs, reviewStillValid: true } : { ...req.inputs };
+        const inputs = freeze(trustedInputs(before, merged as State, time));
         const simulation = simulate(before.linked, before.state, inputs, req.action, req.params);
         checks = simulation.checks;
         if (!simulation.ok) { event(cell, 'Failed', req.actorId, time, { code: 'SIMULATION_FAILED', stage: simulation.stage, checks }); return result(false, 'SIMULATION_FAILED', { checks }); }
@@ -307,11 +410,18 @@ export function execute(gate: Gate, request: ActionRequest): ExecutionResult {
       const usage = freeze({ ...before.usage, [d.budgetId!]: used(before.usage, d.budgetId!) + 1 });
       const version = before.version + 1;
       const payload = { beforeStateHash: stateDigest(before), afterStateHash: hashValue({ state: candidate, version, taskCount }), decision: d, taskCount,
+        // 真实执行时间就是事件 time；这里只额外记录声明的业务日期，两者不合并。
+        businessDate: typeof req.inputs.businessDate === 'number' ? req.inputs.businessDate : null,
+        blockers: before.blockers ? { ledgerHash: before.blockers.ledgerHash, openCount: before.blockers.openIds.length } : null,
+        deadline: before.deadline ? { contentHash: before.deadline.contentHash, dueAt: before.deadline.dueAt, policy: before.deadline.policy } : null,
         assurance: before.assurance ? { attestationHash: before.assurance.attestationHash, evidenceHash: before.assurance.evidenceHash,
           requirementHash: before.assurance.requirementHash, overrodeSelfReport: ASSURED_ACTIONS.includes(req.action) } : null };
       // Prepare every fallible hash before changing domain state or its ledger.
       hashValue(payload);
-      commit(cell, { state: candidate, taskCount, usage, version,
+      // 业务日期在关闭时落账：这里记录的是声明日期，真实时间另存于事件 time。
+      const businessDates = req.action === 'closeFinding' && typeof req.inputs.businessDate === 'number'
+        ? recordBusinessDate(before.businessDates, req.inputs.businessDate, time) : before.businessDates;
+      commit(cell, { state: candidate, taskCount, usage, version, businessDates,
         submitterId: req.action === 'submitEvidence' ? req.actorId : before.submitterId,
         reviewerId: req.action === 'recordReviewPass' ? req.actorId : before.reviewerId });
       event(cell, 'Succeeded', req.actorId, time, payload);
@@ -401,5 +511,96 @@ export function setAssurance(gate: Gate, binding: AssuranceBinding): void {
       evidenceHash: binding.evidenceHash, requirementHash: binding.requirementHash }), version: s.version + 1, requests: freeze({}) });
     event(cell, 'Control', 'trusted-adapter', time, { control: 'SetAssurance',
       previousAttestationHash: s.assurance?.attestationHash ?? null, attestationHash: binding.attestationHash, evidenceHash: binding.evidenceHash });
+  });
+}
+
+/**
+ * Phase5：由受信适配器替换当前阻断项台账（例如政策阻断被逐项解除后）。
+ * 旧台账不可变，旧批准因摘要含 ledgerHash 而失效；未解除的阻断项继续阻断复核与关闭。
+ */
+export function setBlockers(gate: Gate, ledger: BlockerLedger): void {
+  locked(gate, cell => {
+    const s = cell.value;
+    let valid: BlockerLedger;
+    try { valid = validateBlockerLedger(ledger); }
+    catch (error) { fail('INVALID_BLOCKERS', error instanceof GilError ? error.message : 'Blocker ledger must be issued in this process'); }
+    if (valid.findingId !== s.plan.scope.findingId) fail('BLOCKER_SCOPE_MISMATCH', 'Blocker ledger must belong to the plan finding');
+    if (valid.ledgerHash === (s.blockers ? s.blockers.ledgerHash : '')) return;
+    const time = clock(cell);
+    commit(cell, { blockers: valid, version: s.version + 1, requests: freeze({}) });
+    event(cell, 'Control', 'trusted-adapter', time, { control: 'SetBlockers',
+      previousLedgerHash: s.blockers ? s.blockers.ledgerHash : null, ledgerHash: valid.ledgerHash,
+      openCount: valid.openIds.length, total: valid.entries.length });
+  });
+}
+
+/** Phase5：由受信适配器提供显式期限义务。没有来源的义务不可能被创建，因此这里只接受已签发工件。 */
+export function setDeadline(gate: Gate, obligation: Obligation): void {
+  locked(gate, cell => {
+    const s = cell.value;
+    let valid: Obligation;
+    try { valid = validateObligation(obligation); }
+    catch (error) { fail('INVALID_DEADLINE', error instanceof GilError ? error.message : 'Obligation must be issued in this process'); }
+    if (valid.findingId !== s.plan.scope.findingId) fail('DEADLINE_SCOPE_MISMATCH', 'Obligation must belong to the plan finding');
+    if (valid.contentHash === (s.deadline ? s.deadline.contentHash : '')) return;
+    const time = clock(cell);
+    // 换义务后旧处置回执不再适用：显式清空，避免跨义务复用。
+    commit(cell, { deadline: valid, escalation: null, version: s.version + 1, requests: freeze({}) });
+    event(cell, 'Control', 'trusted-adapter', time, { control: 'SetDeadline',
+      previousObligationHash: s.deadline ? s.deadline.contentHash : null, obligationHash: valid.contentHash,
+      dueAt: valid.dueAt, sourceRef: valid.sourceRef, sourceVersion: valid.sourceVersion, policy: valid.policy });
+  });
+}
+
+/**
+ * Phase5：登记越期处置回执。只有注册表内的具名 CTM 能处置，且回执必须属于当前义务。
+ * ACCEPT-LATE 只解除期限阻断；证据、复核与批准要求完全不变。
+ */
+export function recordEscalation(gate: Gate, ack: EscalationAck): void {
+  locked(gate, cell => {
+    const s = cell.value;
+    if (!s.deadline) fail('DEADLINE_REQUIRED', 'No obligation is configured on this gate');
+    let view: ReturnType<typeof escalationView>;
+    try { view = escalationView(ack, s.deadline); }
+    catch (error) { fail('INVALID_ESCALATION', error instanceof GilError ? error.message : 'Escalation ack must be issued in this process'); }
+    const actor = s.identities.find(identity => identity.actorId === view.authority);
+    if (!actor || actor.kind !== 'human' || actor.role !== 'CTM') fail('HUMAN_APPROVAL_REQUIRED', 'Only a registry human CTM may dispose of an overdue obligation');
+    const time = clock(cell);
+    if (ack.at > time) fail('INVALID_ESCALATION', 'Escalation ack cannot come from the future');
+    if (s.escalation && s.escalation.ackId === ack.ackId) return;
+    commit(cell, { escalation: ack, version: s.version + 1, requests: freeze({}) });
+    event(cell, 'Control', view.authority, time, { control: 'RecordEscalation', ackId: view.ackId,
+      obligationHash: view.obligationHash, disposition: view.disposition });
+  });
+}
+
+/** Phase5 诊断视图：仍被阻断的目标与各目的解除权限，用于向人解释"为什么不能关闭"。 */
+export function blockerReport(gate: Gate): { ledgerHash: string; openCount: number; total: number;
+  open: { id: string; target: string; kind: string; owner: string; resolutionAuthority: string }[] } | null {
+  return locked(gate, cell => {
+    const s = cell.value;
+    if (!s.blockers) return null;
+    return freeze({ ledgerHash: s.blockers.ledgerHash, openCount: s.blockers.openIds.length, total: s.blockers.entries.length,
+      open: s.blockers.entries.filter(entry => entry.state === 'OPEN').map(entry => ({ id: entry.id, target: entry.target,
+        kind: entry.kind, owner: entry.owner, resolutionAuthority: entry.resolutionAuthority })) });
+  });
+}
+
+/** Phase5 期限诊断视图：真实执行时间与声明业务日期分开报告。 */
+export function deadlineReport(gate: Gate): { dueAt: number; sourceRef: string; sourceVersion: string; policy: string;
+  overdue: boolean; blocked: boolean; dispositionAccepted: boolean; reason: string;
+  escalation: { ackId: string; disposition: string; authority: string } | null;
+  lastBusinessDate: number } | null {
+  return locked(gate, cell => {
+    const s = cell.value;
+    if (!s.deadline) return null;
+    const status = deadlineStatus(s.deadline, clock(cell));
+    // 只有 ACCEPT-LATE 处置才算越期放行；REMEDIATE 仍视为阻断。
+    const applicable = escalationApplies(s);
+    const dispositionAccepted = applicable !== null && applicable.disposition === 'ACCEPT-LATE';
+    return freeze({ dueAt: status.dueAt, sourceRef: status.sourceRef, sourceVersion: status.sourceVersion, policy: status.policy,
+      overdue: status.overdue, blocked: status.blocked && !dispositionAccepted, dispositionAccepted, reason: status.reason,
+      escalation: applicable ? { ackId: applicable.ackId, disposition: applicable.disposition, authority: applicable.authority } : null,
+      lastBusinessDate: s.businessDates.lastBusinessDate });
   });
 }

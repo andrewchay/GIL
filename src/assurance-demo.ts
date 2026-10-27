@@ -8,6 +8,8 @@ import { accept, answer, resolvedHash, startSession } from './exchange.ts';
 import { bindPlan } from './plans.ts';
 import { createAssurance, attestationHash, challenge, evaluate, issue, revoke } from './assurance.ts';
 import { createEvidence, createRequirement, evidenceHash, evidenceReady, requirementHash } from './evidence.ts';
+import { createBlockerLedger } from './blockers.ts';
+import { createObligation } from './deadlines.ts';
 import { approve, createGate, execute, requestHash, setAssurance, snapshot } from './delegation.ts';
 import { GilError } from './ast.ts';
 import type { ActionRequest, GateConfig, Grant, Identity } from './delegation-ast.ts';
@@ -19,10 +21,11 @@ const NOW = 1793016000000;
 const JSON_MATERIALS = [{ id: 'training-record', contentHash: 'sha256:' + 'a'.repeat(64) },
   { id: 'protocol-ack', contentHash: 'sha256:' + 'b'.repeat(64) }];
 
-interface Fixture { linked: GateConfig['linked']; plan: ReturnType<typeof bindPlan>; requirement: ReturnType<typeof createRequirement>;
-  evidence: ReturnType<typeof createEvidence>; reqHash: string; evHash: string; inputs: State; specHash: string }
+export interface Fixture { linked: GateConfig['linked']; plan: ReturnType<typeof bindPlan>; requirement: ReturnType<typeof createRequirement>;
+  evidence: ReturnType<typeof createEvidence>; reqHash: string; evHash: string; inputs: State; specHash: string;
+  blockers: ReturnType<typeof createBlockerLedger>; deadline: ReturnType<typeof createObligation> }
 
-function loadFixture(): Fixture {
+export function loadFixture(): Fixture {
   const spec = parse(readFileSync(BASE + 'workflow.gil', 'utf8'));
   const ontology = parse(readFileSync(BASE + 'ontology.gil', 'utf8'));
   if (spec.kind !== 'spec' || ontology.kind !== 'ontology') throw new GilError('DEMO_ERROR', 'Invalid clinical documents');
@@ -50,19 +53,27 @@ function loadFixture(): Fixture {
     staffId: 'STAFF-DEMO', protocolVersion: 'PROTOCOL-V3' } };
   const inputs: State = { stagedEvidence: { bundleId: `E-${evHash.slice(7, 15)}`, contentHash: evHash, requirementHash: reqHash,
     ...SCOPE, staffId: 'STAFF-DEMO', protocolVersion: 'PROTOCOL-V3', complete: true, readable: true,
-    authenticityEstablished: true, policyChecksPass: true }, blockingItemsResolved: true, reviewStillValid: true,
-    evaluatedReviewHash: 'REVIEW-H1' };
+    authenticityEstablished: true, policyChecksPass: true }, reviewStillValid: true,
+    evaluatedReviewHash: 'REVIEW-H1', businessDate: 20261020 };
+  // Phase5 受信工件：两条政策阻断已在台账内被有权主体解除。
+  const blockers = createBlockerLedger({ findingId: 'FINDING-DEMO', entries: [
+    { id: 'B-POLICY-1', target: 'recordReviewPass', kind: 'policy', owner: 'COORD-DEMO',
+      resolutionAuthority: 'CRA-DEMO', state: 'RESOLVED', resolvedBy: 'CRA-DEMO', resolvedAt: NOW - 500 },
+    { id: 'B-DISPUTE-1', target: 'closeFinding', kind: 'dispute', owner: 'CRA-DEMO',
+      resolutionAuthority: 'CTM-DEMO', state: 'RESOLVED', resolvedBy: 'CTM-DEMO', resolvedAt: NOW - 400 } ] });
+  const deadline = createObligation({ findingId: 'FINDING-DEMO', dueAt: NOW + 7200000,
+    sourceRef: 'POLICY-TIMELINE-DEMO', sourceVersion: 'V1', policy: 'BLOCK-CLOSURE' }, NOW);
   void core; void initialState;
-  return { linked, plan, requirement, evidence, reqHash, evHash, inputs, specHash: contentHash(linked.spec) };
+  return { linked, plan, requirement, evidence, reqHash, evHash, inputs, specHash: contentHash(linked.spec), blockers, deadline };
 }
-const identities: Identity[] = [
+export const identities: Identity[] = [
   { actorId: 'COORD-DEMO', kind: 'human', role: 'Coordinator' },
   { actorId: 'CRA-DEMO', kind: 'human', role: 'CRA' },
   { actorId: 'CRA2-DEMO', kind: 'human', role: 'CRA' },
   { actorId: 'CTM-DEMO', kind: 'human', role: 'CTM' },
   { actorId: 'SERVICE-DEMO', kind: 'human', role: 'Service' },
 ];
-function grants(): Grant[] {
+export function grants(): Grant[] {
   const template = [['G-SERVICE', 'SERVICE-DEMO', ['recordAcceptedPlan', 'invalidateReview']],
     ['G-COORD', 'COORD-DEMO', ['submitEvidence']], ['G-CRA', 'CRA-DEMO', ['recordReviewPass', 'requestChanges']],
     ['G-CRA2', 'CRA2-DEMO', ['recordReviewPass', 'requestChanges']],
@@ -70,20 +81,22 @@ function grants(): Grant[] {
   return template.map(([id, actorId, actions]) => ({ id, actorId, actions: [...actions] as string[], version: '1', scope: SCOPE,
     effect: 'allow' as const, autonomy: 'Execute' as const, validFrom: NOW - 1000, validUntil: NOW + 86400000, budgetId: id, maxActions: 20 }));
 }
-function stateFor(f: Fixture): State {
+export function stateFor(f: Fixture): State {
   const merged: State = { requirement: { requirementId: 'REQ-DEMO', contentHash: f.reqHash, ...SCOPE,
     staffId: 'STAFF-DEMO', protocolVersion: 'PROTOCOL-V3' } };
   return initialize(f.linked, merged);
 }
-function gateFor(f: Fixture, state: State, assurance?: GateConfig['assurance']) {
-  return createGate({ linked: f.linked, state, plan: f.plan, identities, grants: grants(), now: () => NOW, assurance });
+export function gateFor(f: Fixture, state: State, assurance?: GateConfig['assurance'],
+  patch: Partial<GateConfig> = {}) {
+  return createGate({ linked: f.linked, state, plan: f.plan, identities, grants: grants(), now: () => NOW, assurance,
+    blockers: f.blockers, deadline: f.deadline, ...patch });
 }
-function call(gate: ReturnType<typeof createGate>, actorId: string, action: string, inputs: State, params: State = {}) {
+export function call(gate: ReturnType<typeof createGate>, actorId: string, action: string, inputs: State, params: State = {}) {
   const current = snapshot(gate);
   const req: ActionRequest = { actorId, action, params, inputs, expectedStateHash: current.stateHash, expectedPlanHash: current.planHash };
   return { req, out: execute(gate, req) };
 }
-function approveClose(gate: ReturnType<typeof createGate>, inputs: State) {
+export function approveClose(gate: ReturnType<typeof createGate>, inputs: State) {
   const current = snapshot(gate);
   const req: ActionRequest = { actorId: 'CTM-DEMO', action: 'closeFinding', params: {}, inputs, expectedStateHash: current.stateHash, expectedPlanHash: current.planHash };
   approve(gate, { id: 'APPROVAL-DEMO', version: '1', actorId: 'CTM-DEMO', planHash: current.planHash,

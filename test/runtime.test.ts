@@ -63,7 +63,11 @@ const evidence: State = {
   findingId: 'FINDING-DEMO', staffId: 'STAFF-DEMO', protocolVersion: 'PROTOCOL-V3',
   complete: true, readable: true, authenticityEstablished: true, policyChecksPass: true,
 };
-const inputs: State = { stagedEvidence: evidence, blockingItemsResolved: true, reviewStillValid: true, evaluatedReviewHash: 'REVIEW-H1' };
+const blockers: State = { ledgerHash: 'BLK-H1', findingId: 'FINDING-DEMO', openCount: 0, total: 2 };
+const deadline: State = { contentHash: 'OBL-H1', dueAt: 999999, sourceRef: 'POLICY-DEMO-TIMELINE', sourceVersion: 'V1', policy: 'BLOCK-CLOSURE' };
+const escalation: State = { ackId: 'ACK-NONE', obligationHash: 'OBL-H1', disposition: 'REMEDIATE', authority: 'CTM-DEMO' };
+const inputs: State = { stagedEvidence: evidence, blockers, deadline, escalation, businessDate: 20261020,
+  actionAt: 1000, reviewStillValid: true, evaluatedReviewHash: 'REVIEW-H1' };
 function step(linked: Linked, state: State, name: string, params: State = {}, input: State = inputs): State {
   const before = structuredClone(state);
   const result = simulate(linked, state, input, name, params);
@@ -119,7 +123,7 @@ test('missing and False preconditions block without committing; invalid types th
   state = step(linked, state, 'recordAcceptedPlan', { planHash: 'PLAN-H1' });
   state = step(linked, state, 'submitEvidence');
   const before = structuredClone(state);
-  const partial = { ...inputs }; delete partial.blockingItemsResolved;
+  const partial = { ...inputs }; delete partial.blockers;
   const result = simulate(linked, state, partial, 'recordReviewPass');
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.stage, 'requires');
@@ -127,7 +131,7 @@ test('missing and False preconditions block without committing; invalid types th
   assert.ok(!('state' in result));
   const wrong = simulate(linked, state, { ...inputs, reviewStillValid: false }, 'recordReviewPass');
   assert.equal(wrong.ok, false);
-  assert.throws(() => simulate(linked, state, { ...inputs, blockingItemsResolved: 'true' }, 'recordReviewPass'), error('TYPE_ERROR'));
+  assert.throws(() => simulate(linked, state, { ...inputs, blockers: { ...blockers, openCount: '0' } }, 'recordReviewPass'), error('TYPE_ERROR'));
   assert.deepEqual(state, before);
 });
 

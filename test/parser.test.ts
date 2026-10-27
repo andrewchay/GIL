@@ -24,13 +24,20 @@ test('parses the actual clinical ontology, including identity and relation calls
   assert.equal(doc.kind, 'ontology');
   if (doc.kind !== 'ontology') return;
   assert.equal(doc.name, 'clinical/training-remediation');
-  assert.equal(doc.concepts.length, 2);
+  assert.equal(doc.concepts.length, 5);
   assert.equal(doc.concepts[0].identity, 'requirementId');
   assert.equal(doc.concepts[0].fields.length, 7);
   assert.equal(doc.concepts[1].identity, 'bundleId');
-  assert.equal(doc.relations.length, 2);
+  assert.deepEqual(doc.concepts.map(concept => concept.name),
+    ['Requirement', 'EvidenceBundle', 'BlockerStatus', 'Obligation', 'EscalationAck']);
+  assert.equal(doc.concepts[2].identity, 'ledgerHash');
+  assert.equal(doc.concepts[2].fields.length, 4);
+  assert.equal(doc.relations.length, 4);
   assert.deepEqual(doc.relations[0].params, [{ name: 'e', type: 'EvidenceBundle' }, { name: 'r', type: 'Requirement' }]);
   assert.equal(doc.relations[1].body.kind, 'binary');
+  assert.deepEqual(doc.relations[2].params, [{ name: 'b', type: 'BlockerStatus' }]);
+  assert.deepEqual(doc.relations[3].params,
+    [{ name: 'o', type: 'Obligation' }, { name: 'at', type: 'Int' }, { name: 'esc', type: 'EscalationAck' }]);
 });
 
 test('parses actual workflow; clause boundaries do not need semicolons/newlines', () => {
@@ -40,16 +47,18 @@ test('parses actual workflow; clause boundaries do not need semicolons/newlines'
   assert.equal(doc.name, 'clinical.TrainingRemediation');
   assert.deepEqual(doc.imports, [{ name: 'clinical/training-remediation@0.1', alias: 'C' }]);
   assert.equal(doc.context.length, 6);
-  assert.equal(doc.input.length, 4);
-  assert.equal(doc.state.length, 7);
+  assert.equal(doc.input.length, 8);
+  assert.deepEqual(doc.input.map(binding => binding.name),
+    ['stagedEvidence', 'blockers', 'deadline', 'escalation', 'businessDate', 'actionAt', 'reviewStillValid', 'evaluatedReviewHash']);
+  assert.equal(doc.state.length, 8);
   assert.equal(doc.goals.length, 1);
   assert.equal(doc.constraints.length, 3);
   assert.equal(doc.actions.length, 8);
   const close = doc.actions.find(action => action.name === 'closeFinding')!;
-  assert.equal(close.requires.length, 10);
-  assert.equal(close.ensures.length, 1);
+  assert.equal(close.requires.length, 12);
+  assert.equal(close.ensures.length, 2);
   assert.equal(close.atomic, true);
-  assert.deepEqual(close.writes, ['phase']);
+  assert.deepEqual(close.writes, ['phase', 'lastBusinessDate']);
   assert.deepEqual(close.ensures[0], binary('==', { kind: 'ref', path: ['phase'], next: true }, ref('CLOSED')));
   assert.deepEqual(parse(source('workflow.gil').replace(/\s+/g, ' ')), doc);
 });

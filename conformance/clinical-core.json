@@ -2,27 +2,69 @@
   "notice": "SYNTHETIC CORE-ONLY: no authorization, approval, authenticity verification or clinical system writes",
   "initialState": {
     "requirement": {
-      "requirementId": "REQ-DEMO", "contentHash": "REQ-H1",
-      "studyId": "STUDY-DEMO", "siteId": "SITE-DEMO",
-      "findingId": "FINDING-DEMO", "staffId": "STAFF-DEMO",
+      "requirementId": "REQ-DEMO",
+      "contentHash": "REQ-H1",
+      "studyId": "STUDY-DEMO",
+      "siteId": "SITE-DEMO",
+      "findingId": "FINDING-DEMO",
+      "staffId": "STAFF-DEMO",
       "protocolVersion": "PROTOCOL-V3"
     }
   },
   "inputs": {
     "stagedEvidence": {
-      "bundleId": "E-DEMO", "contentHash": "E-H1", "requirementHash": "REQ-H1",
-      "studyId": "STUDY-DEMO", "siteId": "SITE-DEMO",
-      "findingId": "FINDING-DEMO", "staffId": "STAFF-DEMO",
-      "protocolVersion": "PROTOCOL-V3", "complete": true, "readable": true,
-      "authenticityEstablished": true, "policyChecksPass": true
+      "bundleId": "E-DEMO",
+      "contentHash": "E-H1",
+      "requirementHash": "REQ-H1",
+      "studyId": "STUDY-DEMO",
+      "siteId": "SITE-DEMO",
+      "findingId": "FINDING-DEMO",
+      "staffId": "STAFF-DEMO",
+      "protocolVersion": "PROTOCOL-V3",
+      "complete": true,
+      "readable": true,
+      "authenticityEstablished": true,
+      "policyChecksPass": true
     },
-    "blockingItemsResolved": true, "reviewStillValid": true,
-    "evaluatedReviewHash": "REVIEW-H1"
+    "reviewStillValid": true,
+    "evaluatedReviewHash": "REVIEW-H1",
+    "blockers": {
+      "ledgerHash": "BLK-H1",
+      "findingId": "FINDING-DEMO",
+      "openCount": 0,
+      "total": 2
+    },
+    "deadline": {
+      "contentHash": "OBL-H1",
+      "dueAt": 999999,
+      "sourceRef": "POLICY-DEMO-TIMELINE",
+      "sourceVersion": "V1",
+      "policy": "BLOCK-CLOSURE"
+    },
+    "escalation": {
+      "ackId": "ACK-NONE",
+      "obligationHash": "OBL-H1",
+      "disposition": "REMEDIATE",
+      "authority": "CTM-DEMO"
+    },
+    "businessDate": 20261020,
+    "actionAt": 1000
   },
   "steps": [
-    { "action": "recordAcceptedPlan", "params": { "planHash": "PLAN-H1" } },
-    { "action": "submitEvidence" },
-    { "action": "recordReviewPass" },
-    { "action": "closeFinding" }
+    {
+      "action": "recordAcceptedPlan",
+      "params": {
+        "planHash": "PLAN-H1"
+      }
+    },
+    {
+      "action": "submitEvidence"
+    },
+    {
+      "action": "recordReviewPass"
+    },
+    {
+      "action": "closeFinding"
+    }
   ]
 }

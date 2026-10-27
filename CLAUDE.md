@@ -21,11 +21,18 @@
 - `delegation.ts` 的 `assurance` 为**可选**绑定：配置后 `recordReviewPass`/`closeFinding` 强制要求 Pass+active 且证据摘要一致，并用凭证结果覆盖 `reviewStillValid`；未配置则退回 Phase3 legacy（不校验证据真实性）。生产适配器必须强制配置。
 - `setAssurance` 属受信管理面，已校验凭证有效/Pass/证据一致；但真实身份认证仍未实现，不得暴露给普通请求者。
 - 注册表对象被排除出 Gate 配置摘要（能力对象不可内容寻址）；审计仅存三个摘要，不含注册表身份与 evaluate reasons。每次 execute 调用两轮 evaluate。
+- Phase5 `blockers.ts`：内容寻址阻断项台账，`openCount` 从条目派生；解除只允许 `resolutionAuthority`，解除产生新台账（旧台账不可变）。取代了 `blockingItemsResolved` Bool 投影。
+- Phase5 `deadlines.ts`：`Obligation` 必须有 `sourceRef`/`sourceVersion`，`dueAt` 不能回填；`BLOCK-CLOSURE` 逾期需 CTM 的 `ACCEPT-LATE` 回执，`ESCALATE-ONLY` 只记录升级。
+- Phase5 时间语义：`actionAt` 由闸门从受信时钟注入，调用者提供即 `CALLER_CONTROLLED_TRUSTED_INPUT`；审计事件 `time` 是真实时间，`payload.businessDate` 是声明日期，两者永不合并。
+- Phase5 `sources.ts`：只有"全量覆盖 + 可读"才能给出 `CONFIRMED_ABSENT`；`missingEvidenceClaim` 是唯一允许报 `MISSING_EVIDENCE` 的入口。
+- 闸门受信字段白名单 `TRUSTED_INPUT_KEYS = ['actionAt','blockers','deadline','escalation']`：调用者传任一个即拒绝，不做"默认已解除"推断。
+- 改 `workflow.gil` 输入/状态会连带破坏 `test/parser.test.ts` 的计数断言与 `conformance/clinical-core.json` 的输入夹具，改 spec 后必须同步。
+- GIL 保留字含 `open`、`source`、`requires` 等：ontology 字段不能叫这些名字（用 `openCount`/`sourceRef`）。每个 concept 必须有且仅有一个 `identity` 字段。
 - CLI 模拟必须保留 `authorization: not-implemented` 标记。CLOSED 只表示合成 Core 契约路径，不能代替 CTM 权限、批准或实际凭证。
 - runtime 动态绑定使用安全自有属性，禁止原型继承充当事实；Int 限 safe integer，Decimal 为有舍入的 Number，不用于精确临床或金额计算。
 - 模拟先检查前状态再检查候选不变量；失败/Unknown 不提交。ensures 仅根状态 prime 等式赋值，所有 RHS 读取前状态。
 - canonical 摘要格式 `sha256:<hex>`，含 profile，数组保序；AST 摘要不证明语义等价。
-- 本切片角色：协调员提交、CRA 复核、CTM 关闭；Agent 只检查建议受限分派。完整 A01–A30 外层验收尚未实现。
+- 本切片角色：协调员提交、CRA 复核、CTM 关闭；Agent 只检查建议受限分派。A01–A30 见 `docs/clinical-operations/monitoring-remediation/coverage.md`（29 已实现、1 部分、0 未实现）；未标"已实现"的条目不得视为通过。
 
 ## 核心架构与文件结构
 

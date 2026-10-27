@@ -47,7 +47,7 @@
 | A15 | 只有任务完成标记，没有材料或复核 | 保留真实业务状态；不进入 REVIEWED 或 CLOSED；诊断 MISSING_EVIDENCE / MISSING_REVIEW |
 | A16 | 期限已到，材料尚未补齐 | 生成逾期升级，记录期限来源；不伪造复核结论；是否阻断关闭由明确处置政策决定 |
 | A17 | 期限未定义或适用方案版本未确认 | 产生 open 未决项；不猜日期或选“最新”；仅阻断依赖该项的操作 |
-| A18 | 其他政策阻断项未解除 | blockingItemsResolved=False 或 Unknown；不得关闭；显示阻断目标及解除权限 |
+| A18 | 其他政策阻断项未解除 | 阻断项台账存在 OPEN 条目；不得关闭；显示阻断目标及解除权限 |
 
 ## 3. 权限、解释和并发案例
 
@@ -76,7 +76,7 @@
 | submitEvidence / stagedEvidence | 提交时加载新的不可变证据快照；核对协调员身份、Grant、作用域及内容摘要。复核与关闭时加载 currentEvidenceHash 对应的当前快照；原始断言与复核结论分离 |
 | C.evidenceReady | 领域纯谓词；字段只能来自有来源、范围明确的检查输入；不可由文件存在自动推出 |
 | evaluatedReviewHash / reviewStillValid | Assurance 对精确凭证按证据、要求、规约、审核范围、版本、期限及依赖判定；复核时 evaluatedReviewHash 是新凭证，写入 activeReviewHash；关闭及失效判定时必须等于 activeReviewHash；不同凭证不可混用 |
-| blockingItemsResolved | 对本动作适用的未决、争议和升级记录有明确结论；空缺时不得默认 True |
+| blockers（阻断项台账） | 内容寻址台账逐项记录未决、争议和升级记录；`openCount` 由台账派生，空缺不等于已解除；解除必须由条目的 `resolutionAuthority` 完成 |
 | recordReviewPass | CRA 主体认证、有效 Grant、人员隔离及绑定当前材料的 HumanReview Pass |
 | closeFinding | CTM 主体认证、Grant、人员隔离、精确批准和执行前版本重查 |
 | invalidateReview | 受限记录服务 Grant；确认针对 activeReviewHash 的失效事实；不删除历史；Unknown 仅阻断，不伪造 False |

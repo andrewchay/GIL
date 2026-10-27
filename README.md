@@ -112,6 +112,7 @@ npm run clarify:clinical       # 只提出问题，不自动回答
 npm run demo:clarification     # 显式重放合成回答与接受
 npm run demo:delegation        # 合成授权：Agent拒绝、CTM精确批准后执行
 npm run demo:assurance         # 合成凭证：失效、挑战、重开、换证据失效
+npm run demo:governance        # 合成治理：阻断项、逾期升级、拒绝回填日期
 
 # 查看规范化 AST 及摘要
 node src/cli.ts ast docs/clinical-operations/monitoring-remediation/ontology.gil
@@ -121,6 +122,7 @@ node src/cli.ts ast docs/clinical-operations/monitoring-remediation/ontology.gil
 - [Phase2 解释与澄清边界](docs/interpretation-profile.md)
 - [Phase3 模拟授权与审计](docs/delegation-profile.md)
 - [Phase4 验证凭证、失效与恢复](docs/assurance-profile.md)
+- [Phase5 阻断项、期限与时间语义](docs/phase5-profile.md)
 - [A01–A30 覆盖矩阵](docs/clinical-operations/monitoring-remediation/coverage.md)
 - [实现术语](docs/terminology.md)
 - [临床监查整改场景](docs/clinical-operations/monitoring-remediation/scenario.md)
@@ -136,7 +138,9 @@ Phase3 提供固定计划、过程内模拟身份注册表、Grant/deny、共享
 
 Phase4 增加不可变证据/要求快照、受信注册表签发的 Attestation、失效投影（撤销、过期、规约/目标/上下文/证据变化、挑战）与挑战重开。配置凭证绑定后，复核与关闭必须由有效 Pass 凭证支撑，调用者自报的 `reviewStillValid` 不再构成依据。**凭证为进程内无签名对象，`assurance` 未配置时退回 Phase3 legacy 校验。**
 
-136 项自动测试通过。A01–A30 覆盖情况见覆盖矩阵（23 已实现、5 部分、2 未实现）。
+Phase5 补上三类工件：内容寻址的**阻断项台账**（取代 `blockingItemsResolved` 这个 Bool 投影，解除必须由台账声明的权限主体完成）、带显式来源的**期限义务**（逾期产生升级事件，`BLOCK-CLOSURE` 需 CTM 的 `ACCEPT-LATE` 处置才能越期关闭）、以及**时间语义分离**（真实执行时间由闸门注入且拒绝调用者提供，业务日期单调不回退）。另加检索来源模型，把"确认缺失"与"无法判定"分开。
+
+157 项自动测试通过。A01–A30 覆盖情况见覆盖矩阵（29 已实现、1 部分、0 未实现）。
 
 **模拟 CLOSED 不代表临床发现获准关闭。** 真实身份、实际 Attestation、持久化审计和真实系统写入尚未实现；Grant/Approval 仅为模拟实现。A01–A30 是后续外层验收，不以 Core 单测替代。Int 使用安全整数；Decimal 为有限精度 Number，不用于精确金额或临床计算。
 

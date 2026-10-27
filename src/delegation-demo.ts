@@ -6,6 +6,8 @@ import { sourceArtifact } from './interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from './exchange.ts';
 import { bindPlan } from './plans.ts';
 import { createGate, snapshot, execute, requestHash, approve } from './delegation.ts';
+import { createBlockerLedger } from './blockers.ts';
+import { createObligation } from './deadlines.ts';
 import { GilError } from './ast.ts';
 import type { ActionRequest, Grant } from './delegation-ast.ts';
 
@@ -29,14 +31,25 @@ export function delegationDemo(): unknown {
   for (const question of session.questions) session = answer(session, question.id, question.target === 'intendedOperation' ? 'Clinical.RequestClosure' : intent.answers[question.target], human);
   session = accept(session, { interpretationHash: session.interpretationHash, planHash: session.planHash, resolvedHash: resolvedHash(session) }, human);
   const initialState = initialize(linked, core.initialState);
+  // Phase5：阻断台账与期限义务是受信工件，调用者输入里不得出现。
+  const blockers = createBlockerLedger({ findingId: 'FINDING-DEMO', entries: [
+    { id: 'B-POLICY', target: 'recordReviewPass', kind: 'policy', owner: 'COORD-DEMO',
+      resolutionAuthority: 'CRA-DEMO', state: 'RESOLVED', resolvedBy: 'CRA-DEMO', resolvedAt: controls.now - 500 },
+    { id: 'B-DISPUTE', target: 'closeFinding', kind: 'dispute', owner: 'CRA-DEMO',
+      resolutionAuthority: 'CTM-DEMO', state: 'RESOLVED', resolvedBy: 'CTM-DEMO', resolvedAt: controls.now - 400 } ] });
+  const deadline = createObligation({ findingId: 'FINDING-DEMO', dueAt: controls.now + 7200000,
+    sourceRef: 'POLICY-TIMELINE-DEMO', sourceVersion: 'V1', policy: 'BLOCK-CLOSURE' }, controls.now);
+  const callerInputs = structuredClone(core.inputs);
+  for (const key of ['actionAt', 'blockers', 'deadline', 'escalation']) delete callerInputs[key];
   const plan = bindPlan(session, linked, controls.scope, core.initialState.requirement.contentHash);
   const grants: Grant[] = controls.grantTemplates.map((item: {id:string;actorId:string;actions:string[]}) => ({ ...item, version: '1', scope: controls.scope, effect: 'allow', autonomy: 'Execute', validFrom: controls.now - 1000, validUntil: controls.now + 86400000, budgetId: item.id, maxActions: item.id === 'G-AGENT' ? 2 : 10 }));
-  const gate = createGate({ linked, state: initialState, plan, identities: controls.identities, grants, now: () => controls.now });
+  const gate = createGate({ linked, state: initialState, plan, identities: controls.identities, grants, now: () => controls.now,
+    blockers, deadline });
   const outcomes: unknown[] = [];
   let ok = true;
   for (const step of controls.steps) {
     const current = snapshot(gate);
-    const req: ActionRequest = { actorId: step.actorId, action: step.action, params: step.action === 'recordAcceptedPlan' ? { planHash: plan.hash } : {}, inputs: core.inputs, expectedStateHash: current.stateHash, expectedPlanHash: current.planHash };
+    const req: ActionRequest = { actorId: step.actorId, action: step.action, params: step.action === 'recordAcceptedPlan' ? { planHash: plan.hash } : {}, inputs: callerInputs, expectedStateHash: current.stateHash, expectedPlanHash: current.planHash };
     if (step.approve) approve(gate, { id: 'APPROVAL-DEMO', version: '1', actorId: 'CTM-DEMO', planHash: current.planHash, requestHash: requestHash(gate, req), validUntil: controls.now + 10000 });
     const outcome = execute(gate, req);
     outcomes.push({ actorId: step.actorId, action: step.action, expectedDenied: !!step.expectDenied, ...outcome });

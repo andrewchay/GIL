@@ -24,6 +24,28 @@ ontology "clinical/training-remediation" version "0.1" {
     policyChecksPass: Bool;
   }
 
+  concept BlockerStatus {
+    identity ledgerHash: Text;
+    findingId: Text;
+    openCount: Int;
+    total: Int;
+  }
+
+  concept Obligation {
+    identity contentHash: Text;
+    dueAt: Int;
+    sourceRef: Text;
+    sourceVersion: Text;
+    policy: Text;
+  }
+
+  concept EscalationAck {
+    identity ackId: Text;
+    obligationHash: Text;
+    disposition: Text;
+    authority: Text;
+  }
+
   relation scopeMatches(e: EvidenceBundle, r: Requirement): Bool =
     e.studyId == r.studyId &&
     e.siteId == r.siteId &&
@@ -36,4 +58,13 @@ ontology "clinical/training-remediation" version "0.1" {
     e.protocolVersion == r.protocolVersion &&
     e.complete && e.readable &&
     e.authenticityEstablished && e.policyChecksPass;
+
+  // 阻断项必须显式给出且全部解除；缺省不等于已解除。
+  relation blockersCleared(b: BlockerStatus): Bool =
+    b.ledgerHash != "" && b.openCount == 0;
+
+  // 期限内可关闭；逾期则必须有对同一义务的显式越期处置回执。
+  relation deadlineSatisfied(o: Obligation, at: Int, esc: EscalationAck): Bool =
+    at <= o.dueAt || o.policy == "ESCALATE-ONLY" ||
+    (esc.obligationHash == o.contentHash && esc.disposition == "ACCEPT-LATE");
 }
