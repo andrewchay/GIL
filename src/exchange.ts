@@ -85,7 +85,8 @@ function questions(candidate: Candidate): Question[] {
     fail('INVALID_CANDIDATE', 'Candidate requires an id, plan object and explicit affects map');
   }
   const names = new Set<string>();
-  return candidate.interpretation.items.filter(item => item.kind !== 'ground').map(item => {
+  // assume 是已声明的假设，不是待澄清问题；只有 open/ambiguous 进入问询队列。
+  return candidate.interpretation.items.filter(item => item.kind !== 'ground' && item.kind !== 'assume').map(item => {
     if (item.kind === 'ground') return fail('INVALID_CANDIDATE', 'Unexpected grounding item');
     if (!item.name?.trim() || names.has(item.name)) fail('DUPLICATE_QUESTION', 'Question target names must be unique');
     names.add(item.name);

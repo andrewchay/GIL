@@ -1,9 +1,11 @@
-import type { Expr, Import } from './ast.ts';
+import type { Expr, Import, Provenance } from './ast.ts';
 export interface SourceArtifact { id: string; version: string; hash: string; text: string }
 export type InterpretationItem =
   | { kind: 'ground'; source: { artifactId: string; start: number; end: number }; target: Expr }
   | { kind: 'open'; name: string; type: string }
-  | { kind: 'ambiguous'; name: string; candidates: string[][] };
+  | { kind: 'ambiguous'; name: string; candidates: string[][] }
+  /** 显式假设：它携带来源标签，但不进入待澄清问题队列。 */
+  | { kind: 'assume'; name: string; expr: Expr; provenance?: Provenance };
 export interface Interpretation { kind: 'interpretation'; name: string; sourceText: string; imports: Import[]; items: InterpretationItem[] }
 export interface GroundingContext {
   sources: SourceArtifact[];

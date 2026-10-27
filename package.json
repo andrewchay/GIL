@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "demo:workspace": "node src/cli.ts demo-workspace",
@@ -14,6 +16,7 @@
     "clarify:clinical": "node src/cli.ts clarify docs/clinical-operations/monitoring-remediation/interpretation.gil conformance/clinical-interpretation.json",
     "demo:clarification": "node src/cli.ts clarify docs/clinical-operations/monitoring-remediation/interpretation.gil conformance/clinical-interpretation.json --demo-answer",
     "check:clinical": "node src/cli.ts check docs/clinical-operations/monitoring-remediation/workflow.gil docs/clinical-operations/monitoring-remediation/ontology.gil",
-    "demo:clinical": "node src/cli.ts simulate docs/clinical-operations/monitoring-remediation/workflow.gil docs/clinical-operations/monitoring-remediation/ontology.gil conformance/clinical-core.json"
+    "demo:clinical": "node src/cli.ts simulate docs/clinical-operations/monitoring-remediation/workflow.gil docs/clinical-operations/monitoring-remediation/ontology.gil conformance/clinical-core.json",
+    "parse:examples": "node src/cli.ts parse examples/酒店预订.gil && node src/cli.ts parse examples/机器人导航.gil"
   }
 }

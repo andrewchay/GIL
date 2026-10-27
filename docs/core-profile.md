@@ -7,15 +7,27 @@
 
 使用 TypeScript 源码及 Node.js >=24 原生类型擦除执行。无第三方运行依赖。Node 运行不等于 TypeScript 编译器类型检查；本项目的 `check` 是 GIL 类型检查，不是 tsc。
 
-支持单文件一个 ontology 或 spec：
+**解析能力与求值能力不是同一件事。** 下表左侧的构造现在都能被解析并进入 AST；右侧才是 checker 与模拟器实际能判定的范围。解析通过不等于该构造已被检查或求值。
+
+已可解析的语法：
 - 本体概念、identity、字段、带函数体的纯关系。
 - 精确本体版本导入及别名；Text、Bool、Int、Decimal、导入概念类型。
-- context、input、state；achieve、require；action 参数、requires、ensures、writes、atomic。
+- 构造类型 `Option<T>`、`Entity<T>`、`Set<T>`、`A | B`、`T?`、记录类型 `{ n: T | 判定 }`。
+- context、input、output、state；knowledge（open/assert/assume/disputed/ambiguous/operationalize）；goals（achieve/prefer）；require；action 参数、`-> T` 返回值、requires、ensures、writes、preserves、outcomes、failure、atomic、retryable、reversibility、compensate；verification（verify/by/under）。
+- 字面量、字段引用、纯关系调用、下一状态引用、逻辑比较和算术；一阶量词 `forall`/`exists`；单位字面量 `24.hours`；`eventually within N.<unit>`。
+- 来源声明 `source <expr> as asserted|assumed|inferred|disputed`。
+- 词法表 `lexicon ... for ...`；多文档 bundle（`parseBundle`）。
+- GIL-RL 环境文档与 `delegate` 请求语法；二者各有独立入口与 profile 文档。
+
+checker 与模拟器实际判定的范围：
 - 字面量、字段引用、纯关系调用、下一状态引用、逻辑比较和算术。
 - 逻辑 Strong Kleene 三值求值，类型错误不降为 Unknown。
 - `always` 状态不变量的当前观察检查，以及 `eventually` 的有限前缀观察。
+- 确定性后置赋值 `x' == expression` 与帧校验。
 
-暂不支持：lexicon/interpretation、knowledge、output、泛型、精化类型、量词、集合、单位、概率、bounded temporal、偏好、返回值与补偿、外层事件语言。遇到未支持语法明确报错；不静默忽略。
+明确未实现求值：量词、单位运算、knowledge 项的语义效力、prefer 的偏好排序、`-> T` 的返回值传递、failure/retryable/reversibility/compensate 的运行时行为、verification 的实际验证器调用。这些构造被解析后，checker 报 `UNSUPPORTED_EXPRESSION`，模拟器报 `UNSUPPORTED_PROFILE`——**不会静默当作已满足**。
+
+一个具体例子：`knowledge { assert open24: hotel.isOpen == true source "feed" as asserted; }` 解析后，`asserted` 只记录谁做了断言。它不使命题为真，也不进入约束求值。
 
 状态模拟不是通用规划器或约束求解器。仅执行可写状态的 `x' == expression` 确定性后置赋值，右侧读取同一个前状态；其他后置形状明确拒绝。赋值后检查后置条件及状态不变量。执行前和候选状态均检查当前不变量；不能用后状态修复掩盖前状态违规。失败或未知不提交候选状态，不原地修改输入对象。initialize 只建立部分初始值，不认证不变量；实际检查需要动作输入。
 
@@ -45,7 +57,7 @@ CLI 输出规约摘要和导入本体摘要；其组合可供未来工件模型�
 
 实现诊断代码由源码定义，CLI 保留 code 和 message。返回非零退出码表示解析、检查或模拟未成功；不会伪装成业务批准。
 
-`open` 和 `ambiguous` 在完整规范中属于未决状态；本 profile 不解析它们。缺失字段产生 Unknown，不自动推断为显式 open，也不把歧义压成概率或 null。
+`open`、`ambiguous`、`disputed` 现在可以被解析进 `knowledge` 章节，但它们**不改变求值**：未决项不会让相关表达式变 Unknown，也不会被自动选一个候选。缺失字段仍按原规则产生 Unknown，歧义不会被压成概率或 null。把 `open` 真正接入三值求值是后续工作，届时必须显式声明它影响哪些判定。
 
 ## 4. 三值逻辑
 
@@ -67,13 +79,18 @@ NOT T=F，NOT F=T，NOT U=U。与未知值比较得到 Unknown，不进行宿主
 
 ## 5. 时间和安全解释
 
-当前观察满足不变量不证明所有将来轨迹满足 `always`。目标尚未实现的开放有限前缀，不构成 `eventually` 的失败证明。监控输出必须区分当前条件和全轨迹结论；本轮不实现时间界限或完整历史模型。
+当前观察满足不变量不证明所有将来轨迹满足 `always`。目标尚未实现的开放有限前缀，不构成 `eventually` 的失败证明。监控输出必须区分当前条件和全轨迹结论。
+
+`eventually within 2.minutes` 现在可以被解析，界限会进入 AST；但**它只是声明的时间量，不携带真实时钟**。Core 没有时间推进语义，因此该界限不参与任何判定。
 
 临床 closeFinding 的 Core 模拟成功只意味着动作契约成立。它不检查 CTM 身份、Grant、Approval 或实际 Attestation；也不能改变真实发现状态。合成夹具中的有效性 Bool 是测试输入，不是可信认证接口。真实外层适配器必须按照场景规约建立这些事实，不能让调用者自行勾选后执行。
 
 ## 6. 阶段验收
 
 - 两个临床 GIL 独立解析、链接和静态检查。
+- 构造类型、knowledge、output、verification、量词、单位、prefer、返回值与补偿均能解析并进入 AST；未实现求值的构造必须报 `UNSUPPORTED_EXPRESSION` 或 `UNSUPPORTED_PROFILE`。
+- `examples/酒店预订.gil` 整体可解析为 spec + interpretation + delegate 三项；`examples/机器人导航.gil` 可解析为 environment。
+- 单文档入口 `parse` 仍拒绝多文档文件，只有 `parseBundle` 接受。
 - 规范化及哈希对空白注释稳定，对 AST 内容变化敏感。
 - 名称、类型、写集、prime 作用域与不支持构造有负例。
 - 强三值真值表、类型错、未知前置条件、失败不提交有测试。

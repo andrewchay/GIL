@@ -1,5 +1,39 @@
 # GIL-language 项目调研与架构笔记
 
+## 2026-10-27 补齐 Core 语法，两个示例全部可解析
+
+目标是把"示例文件解析不了"这个洞补上。最后两个示例都能进 AST 了。
+
+**最关键的认识：解析 ≠ 求值。** 容易犯的错是「能解析了就当支持了」。我坚持让未实现的构造在 checker 报 `UNSUPPORTED_EXPRESSION`、模拟器报 `UNSUPPORTED_PROFILE`，并在三份文档里把这个区分写成第一条。`knowledge { assert ... as asserted }` 不使命题为真，`eventually within 2.minutes` 不带真实时钟——这两句必须出现在 README，否则读者会误判能力。
+
+**四个踩坑记录：**
+
+1. **量词的分隔点与限定名同形。** `exists b: H.Booking. chosen == b` —— `path()` 会把分隔点后的 `chosen` 也当成类型段，得到 `H.Booking.chosen`。试过"回退一段"，但 body 是 `b1.room == b2.room` 时会回退错（吃到 4 段，回退 1 段仍错）。最终靠**命名约定**解决：类型最多两段，第二段必须大写开头（概念名大写、变量名小写）。这在 `quantifierType()` 注释里写清楚了，改之前必须先读。
+
+2. **`canonical()` 会因新增可选字段漂移。** 加 `output`/`knowledge`/`verification` 三个空数组、加 `Import.layer`、加 `Binding.typeExpr`，每一个都会改旧文档的 sha256。有测试守着旧 digest，一次就抓到。修法是 `normalize()` 剥离 `typeExpr`（`type` 已是规范文本，信息等价）、省略空的新章节、`layer` 只在 lexicon 时写。新增可选章节必须加进 `OMIT_WHEN_EMPTY`。
+
+3. **`ok` 是两个 token 不是表达式。** 测试里写 `requires ok r` 直接炸——`expression` 解析完 `ok` 就停。这类"看起来像自然语言"的测试夹具容易写错，写的时候要想着语法。
+
+4. **保留字兼作谓词。** `irreversible(action)` 里 `irreversible` 是保留字、`action` 也是。前者需要"后跟 `(` 才当调用名"，后者需要作为术语引用。用两个白名单（`predicateKeywords`、`termKeywords`）处理，没有放宽整个 reserved 集合。
+
+**为什么 `parse` 和 `parseBundle` 分开：** 规范说一个文件一个文档。示例文件是"综合示例"，塞了三块。与其放宽 `parse` 的严格性，不如加一个显式的 bundle 入口，并让 `parse` 继续拒绝多文档（有测试守着）。
+
+## 2026-10-27 RL 与 Workspace 层落地
+
+用户问"项目做完了吗"——实测后确认：规范 6 份齐全，实现只覆盖 4 域的临床切片。两个示例文件当时都解析失败（`Entity<H.Customer>` 构造类型、`environment` 顶层文档）。
+
+随后补了 RL 与 Workspace 两层最小一致实现：
+
+**RL**：`parseEnvironment` + `checkEnvironment` + 种子化回放。关键设计是"环境原语由宿主提供"——`Cell`、`Start`、`atStation` 不是 GIL 定义的，GIL 只声明使用。这避免了编造物理语义。`cutoff` 与 `failure` 分离很重要：步数上限不是任务失败。
+
+踩坑：`not robot in HazardCells` 最初解析成 `(!robot) in HazardCells`。原因是一元 `not` 递归调用 `prefix()` 而非完整表达式。修法是 RL 模式下 `not`/`always`/`eventually` 绑定 `expression(4)`（比较级），Core 保持原样不动。
+
+**Workspace**：工件/来源/快照/示例集/记忆。最容易做错的是 `contentHash` 覆盖范围——最初包含 `id`，导致"同内容不同名"得到不同引用，违反"显示名称不是稳定身份"。改为只覆盖 `mediaType` + `payloadHash`。
+
+记忆的删除语义：删除不产生新内容所以不新增 revision，只把当前版本标 `Deleted`；纠正才新增 revision。第一版实现两者都新增，导致历史里出现两个 Deleted 版本。
+
+179 测试通过，7 个 demo 可运行。
+
 ## 2026-10-27 Phase5 完成：终结 Bool 投影
 
 三个新工件层替换了原有的弱模型：

@@ -179,6 +179,15 @@ export function validateInterpretation(value: Interpretation, context: Grounding
       } else if (source && (splitsSurrogate(source.text, start) || splitsSurrogate(source.text, end))) {
         report('SURROGATE_SPLIT', 'sourceSpan boundary splits a UTF-16 surrogate pair');
       }
+    } else if (item.kind === 'assume') {
+      if (!validName(item.name)) report('INVALID_NAME', 'Declaration requires a safe name');
+      else {
+        if (names.has(item.name)) report('DUPLICATE_NAME', `Duplicate declaration ${item.name}`);
+        names.add(item.name);
+      }
+      if (!shape(item, ['kind', 'name', 'expr'], ['provenance']) || !record(item.expr)) {
+        report('INVALID_ITEM', 'assume requires an expression');
+      }
     } else report('INVALID_ITEM', `Unsupported item kind ${String(item.kind)}`);
   }
   return diagnostics;

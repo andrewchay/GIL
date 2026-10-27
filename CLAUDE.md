@@ -37,7 +37,9 @@
 - runtime 动态绑定使用安全自有属性，禁止原型继承充当事实；Int 限 safe integer，Decimal 为有舍入的 Number，不用于精确临床或金额计算。
 - 模拟先检查前状态再检查候选不变量；失败/Unknown 不提交。ensures 仅根状态 prime 等式赋值，所有 RHS 读取前状态。
 - canonical 摘要格式 `sha256:<hex>`，含 profile，数组保序；AST 摘要不证明语义等价。
-- 六层实现状态：Core / Exchange / Delegation / Assurance 有完整原型；Workspace 与 RL 有最小一致实现（无持久化、无 POMDP、无视图投影）。`lexiconDef`、`Option<T>`/`Entity<T>` 构造类型仍未实现，因此 `examples/酒店预订.gil` 不可解析。
+- 六层实现状态：Core / Exchange / Delegation / Assurance 有完整原型；Workspace 与 RL 有最小一致实现（无持久化、无 POMDP、无视图投影）。
+- 两个示例文件都可解析：`npm run parse:examples` → 酒店（spec+interpretation+delegate）、机器人（environment）。`parseBundle` 才接受多文档，`parse` 仍只接受一个。
+- 仍未实现求值：量词、单位运算、knowledge 语义效力、prefer 排序、`-> T` 返回值、failure/retryable/reversibility/compensate、verification 验证器调用。`ontology { type T = ... }` 与无体 relation 仍未实现。
 - 本切片角色：协调员提交、CRA 复核、CTM 关闭；Agent 只检查建议受限分派。A01–A30 见 `docs/clinical-operations/monitoring-remediation/coverage.md`（29 已实现、1 部分、0 未实现）；未标"已实现"的条目不得视为通过。
 
 ## 核心架构与文件结构
@@ -64,4 +66,7 @@
    - `Option<T>`（值可不存在）、`Unknown`（三值逻辑中信息不足）、`open`（缺失待定参数）、`ambiguous`（多候选 AST）、`ill-formed`（语法/类型错误）严格区分，不得合并为 `null` 或 `false`。
    - 可补偿（`compensable`）不等于可逆（`reversible`）。
 3. **不可变与内容寻址**：所有跨层引用必须绑定版本与 `ContentHash`；已接受工件、事件、审批、验证凭证均不可原地修改，变更必须产生新哈希并显式评估是否失效。
-4. **语法范围区分**：`grammar/GIL-Core.ebnf` 仅覆盖 `GIL-Core`（`ontology`/`lexicon`/`spec`/`interpretation`）。`environment`（RL 层）已由 `parseEnvironment` 实现，但**有意不并入** `GIL-Core.ebnf`——它是 RL 层语法。`delegate`（Delegation 层）只有规范示意，无解析实现。
+4. **语法范围区分**：`grammar/GIL-Core.ebnf` 现含四块——Core 文档、`bundle`（多顶层文档）、`delegationDef`（委派请求）、`environmentDef`（RL 环境）。三者共享词法但语义分层：`delegate` 里的 scope/budget/autonomy 是**请求**，不是授权；`environment` 的 `in` 与 `within N.steps` 只在 RL 模式启用。
+5. **解析 ≠ 求值**：构造类型、`output`/`knowledge`/`verification`、量词、单位、`prefer`、动作返回值/补偿、`lexicon` 都能进 AST，但 checker 只判定有限 Core 子集。未实现的构造必须报 `UNSUPPORTED_EXPRESSION`/`UNSUPPORTED_PROFILE`，**不能因为能解析就当作已满足**。
+6. **量词分隔点消歧**：`exists b: H.Booking. chosen == b` 里的 `.` 与限定名同形。规则：类型最多两段，第二段必须大写开头（概念命名约定），否则该点是分隔符。改这条规则前先看 `quantifierType()` 的注释。
+7. **摘要稳定性**：`canonical()` 会剥离 `typeExpr`（`type` 已是规范文本）并对 `output`/`knowledge`/`verification` 的空数组做省略。新增可选章节必须加入 `OMIT_WHEN_EMPTY`，否则历史摘要无故漂移——有测试守着旧 digest。

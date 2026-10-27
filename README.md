@@ -118,6 +118,9 @@ npm run demo:workspace         # 合成工作空间：工件、快照、用户�
 
 # 查看规范化 AST 及摘要
 node src/cli.ts ast docs/clinical-operations/monitoring-remediation/ontology.gil
+
+# 只验证示例文件能被解析成哪些顶层项（不做类型检查、不执行、不授权）
+npm run parse:examples
 ```
 
 - [Core profile 与实现边界](docs/core-profile.md)
@@ -136,7 +139,11 @@ node src/cli.ts ast docs/clinical-operations/monitoring-remediation/ontology.gil
 
 Phase2 新增独立解释入口、来源接地、open/ambiguous、澄清回答与精确接受。`src/exchange.ts` 为不可变进程内会话，不接受反序列化会话；合成主体不是实际身份凭证。解释引用只按显式目录核对，尚未加载本体文件验证其定义。既有 Core profile 与摘要保持兼容。
 
-本原型只支持临床示例需要的有限子集。未支持构造显式拒绝；既有酒店和机器人完整示例不属于本 profile。
+本原型只求值临床示例需要的有限子集。**解析能力比求值能力宽**：《酒店预订》与《机器人导航》两个完整示例现在都能被解析——酒店示例产出 spec + interpretation + delegate 三项，机器人示例产出 environment 一项。但解析通过不等于它们已被检查或求值。
+
+量词、单位运算、knowledge 的语义效力、prefer 的偏好排序、`-> T` 返回值传递、failure/retryable/reversibility/compensate 的运行时行为、verification 的实际验证器调用都还没有实现。这些构造进 AST 之后，checker 报 `UNSUPPORTED_EXPRESSION`，模拟器报 `UNSUPPORTED_PROFILE`，不会静默当作已满足。
+
+一个具体边界：`knowledge { assert x: hotel.isOpen == true source "feed" as asserted; }` 里的 `asserted` 只记录谁做了断言，不使命题为真，也不进入任何约束判定。
 
 Phase3 提供固定计划、过程内模拟身份注册表、Grant/deny、共享动作预算、撤销、精确批准和线性审计链。旧 `simulate` 仍为纯 Core；新 `demo:delegation` 才演示模拟授权门。
 
@@ -146,7 +153,9 @@ Phase5 补上三类工件：内容寻址的**阻断项台账**（取代 `blockin
 
 RL 层（`environment` 文档）与 Workspace 层（工件、来源引用、快照、用户可控记忆）现已具备最小一致实现：随机转移按显式种子回放，`cutoff` 与 `failure` 分离，奖励分量分别记账；记忆必须带用途、来源与保留策略，删除后不再进入上下文。
 
-179 项自动测试通过。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
+Core 语法现已覆盖构造类型（`Entity<T>`、`Option<T>`、`Set<T>`、联合与记录）、`output`/`knowledge`/`verification` 章节、一阶量词、单位字面量、`prefer` 偏好、动作返回值与补偿、词法表定义、多文档 bundle，以及 `delegate` 请求语法。GIL-RL 的环境语法已写入正式 EBNF。
+
+188 项自动测试通过。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
 
 **模拟 CLOSED 不代表临床发现获准关闭。** 真实身份、实际 Attestation、持久化审计和真实系统写入尚未实现；Grant/Approval 仅为模拟实现。A01–A30 是后续外层验收，不以 Core 单测替代。Int 使用安全整数；Decimal 为有限精度 Number，不用于精确金额或临床计算。
 

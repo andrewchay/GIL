@@ -5,6 +5,8 @@ import type { Binding, Diagnostic, Expr, Linked, Ontology, Relation, Spec } from
 export function link(spec: Spec, ontologies: Ontology[]): Linked {
   const result: Record<string, Ontology> = Object.create(null);
   for (const item of spec.imports) {
+    // 词法表不携带概念语义，由 Exchange 层解析；这里不能把它当 ontology 解析。
+    if (item.layer === 'lexicon') continue;
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(item.alias)) {
       throw new GilError('INVALID_ALIAS', `Invalid ontology alias ${item.alias}`);
     }

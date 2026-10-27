@@ -4,6 +4,11 @@
 
 document        ::= ontologyDef | lexiconDef | specification | interpretationDef ;
 
+(* 一个文件可携带多个互不嵌套的顶层文档：规范仓库的示例文件把 spec、
+   interpretation 与 delegation 放在一起。单文档入口仍只接受一个。 *)
+bundle          ::= documentEntry+ ;
+documentEntry   ::= document | delegationDef ;
+
 ontologyDef     ::= "ontology" string "version" string
                     "{" ontologyItem* "}" ;
 ontologyItem    ::= conceptDecl | relationDecl | constraintDecl | typeDecl ;
@@ -80,6 +85,7 @@ interpretationDef
                     "{" importDecl* interpretationItem* "}" ;
 interpretationItem
                 ::= "ground" sourceRef "->" expression provenance? ";"
+                  | "assume" name ":" expression provenance? ";"
                   | knowledgeItem ;
 sourceRef       ::= name "(" arguments? ")" ;
 
@@ -114,6 +120,9 @@ temporalExpr    ::= ("always" | "eventually" | "entered" | "changed") unaryExpr
                   | "after" expression unaryExpr
                   | quantifierExpr
                   | postfixExpr ;
+(* 绑定名可用逗号或空白分隔：`forall b1 b2: H.Booking. e`。
+   类型后的 "." 与限定名里的 "." 同形，取舍依据命名约定：
+   类型最多两段且第二段首字母大写，绑定变量名小写。 *)
 quantifierExpr  ::= ("forall" | "exists") nameList ":" typeExpr "." expression ;
 postfixExpr     ::= primaryExpr postfixOp* ;
 postfixOp       ::= "." name | "'" | "(" arguments? ")" | "[" expression "]" ;
@@ -134,3 +143,65 @@ string          ::= "\"" stringCharacter* "\"" ;
 letter          ::= "A"…"Z" | "a"…"z" | "_" ;
 digit           ::= "0"…"9" ;
 stringCharacter ::= (* 除未转义双引号外的字符，转义规则由实现规范定义 *) ;
+
+(* ─────────────────────────────────────────────────────────────────────────
+   GIL-Delegation 的请求语法。
+   这里的 scope、budget、autonomy 都是请求的一部分，不是执行授权；
+   真正许可由 Grant 与 bound plan 在运行期判定。
+   ───────────────────────────────────────────────────────────────────────── *)
+delegationDef   ::= "delegate" name "(" delegationParams? ")" "to" reference
+                    "within" reference delegationClause* ";" ;
+delegationParams
+                ::= delegationParam ("," delegationParam)* ;
+delegationParam ::= name (":" typeExpr)? ;
+delegationClause
+                ::= "autonomy" ("supervised" | "bounded" | "autonomous")
+                  | "budget" decimal "." name
+                  | "requires" expression
+                  | "requiresEvidence" referenceList
+                  | "approval" reference "when" expression
+                  | "onConflict" handler
+                  | "onUncertainty" handler
+                  | "revokeBy" reference
+                  | "expires" decimal "." name "after" reference ;
+(* 动词加可选目标：`ask customer`、`escalate`。 *)
+handler         ::= name name* ;
+
+(* ─────────────────────────────────────────────────────────────────────────
+   GIL-RL 的环境语法（06-GIL-RL.md）。
+   它有意不并入 Core 文档：`in` 与 `within N.steps` 只在环境文档中启用。
+   ───────────────────────────────────────────────────────────────────────── *)
+environmentDef  ::= "environment" qualifiedName "version" string
+                    "{" environmentSection* "}" ;
+environmentSection
+                ::= "state" "{" typedDecl* "}"
+                  | "observation" "{" observationItem* "}"
+                  | "initial" "{" initialDecl* "}"
+                  | "action" "{" rlActionDecl* "}"
+                  | "termination" "{" terminationClause* "}"
+                  | "goals" "{" rlGoalDecl* "}"
+                  | "constraints" "{" rlRequireDecl* "}"
+                  | "reward" "{" rewardClause* "}"
+                  | "objective" "{" "maximize" name "subjectTo" nameList ";" "}" ;
+initialDecl     ::= expression ";" ;
+rlGoalDecl      ::= "achieve" name ":" expression ";" ;
+rlRequireDecl   ::= "require" name ":" expression ";" ;
+(* 首版只支持 `fullState;` 或裸可见变量名。 *)
+observationItem ::= (name | "fullState") ";" ;
+terminationClause
+                ::= ("success" | "failure" | "cutoff") "when" expression ";" ;
+rewardClause    ::= "discount" decimal ";"
+                  | "horizon" integer "." "steps" ";"
+                  | "aggregation" name ";"
+                  | "term" name ":" signedNumber rewardTiming ;
+rewardTiming    ::= "once" "entered" "(" expression ")" ";"
+                  | "per" "step" ";" ;
+signedNumber    ::= ("-" | "+")? (integer | decimal) ;
+rlActionDecl    ::= "action" name "(" parameters? ")"
+                    rlActionClause* ";" ;
+rlActionClause  ::= "requires" expression
+                  | "ensures" expression
+                  | "writes" referenceList
+                  | "atomic"
+                  | "outcomes" "{" rlOutcomeDecl* "}" ;
+rlOutcomeDecl   ::= decimal "->" expression ";" ;

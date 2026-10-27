@@ -1,25 +1,32 @@
 # 任务进度
 
-## Phase5：补齐验收缺口（2026-10-27 完成）
+## Core 语法补齐：示例文件全部可解析（2026-10-27 完成）
 
-- [x] A18 阻断项台账：`src/blockers.ts`，内容寻址、`openCount` 派生、解除限 `resolutionAuthority`。
-- [x] spec/ontology 改造：`blockers`/`deadline`/`escalation`/`businessDate`/`actionAt` 输入，`lastBusinessDate` 状态。
-- [x] 闸门受信输入注入：`TRUSTED_INPUT_KEYS` 拒绝调用者伪造，阻断/期限/时间由工件派生。
-- [x] A16 期限与逾期：`src/deadlines.ts`，来源强制、`BLOCK-CLOSURE`/`ESCALATE-ONLY`、`ACCEPT-LATE` 处置、升级事件。
-- [x] A30 时间语义：真实执行时间注入、业务日期单调、`BACKDATED_BUSINESS_DATE`。
-- [x] A13 要求更新链端到端：→OPEN、清空绑定、旧凭证 `CONTEXT_MISMATCH`、不可采纳。
-- [x] A07/A09 来源建模：`src/sources.ts`，Unknown 与 `MISSING_EVIDENCE` 分离。
-- [x] 测试：`test/phase5.test.ts` 22 项；全套 158 pass / 0 fail。
-- [x] CLI：`npm run demo:governance`，`ok=true`。
-- [x] 文档：`docs/phase5-profile.md`、coverage 矩阵（29✅/1🟡/0⬜）、README、CLAUDE.md、acceptance.md。
-- [x] 自查修复：跨义务处置回执复用缺陷（`setDeadline` 清空 `escalation`）。
+- [x] `TypeExpr`：`Entity<T>`、`Option<T>`、`Set<T>`、`A | B`、`T?`、记录类型；`Binding.type` 保留规范文本，构造类型另存 `typeExpr`。
+- [x] 新增章节：`output`、`knowledge`（open/assert/assume/disputed/ambiguous/operationalize）、`verification`（verify/by/under）。
+- [x] `goals` 支持 `prefer ... minimize|maximize ... priority N`；`achieve` 不写 `kind`，保持既有摘要不变。
+- [x] 一阶量词 `forall`/`exists`：共享类型、空白分隔、分隔点消歧（类型最多两段且第二段大写）。
+- [x] 单位字面量 `24.hours`（`Expr.quantity`）与 `eventually within 2.minutes`（Core 单位白名单）。
+- [x] 动作契约扩展：`-> T`、`preserves`、`outcomes`、`failure`、`retryable`、`reversibility`、`compensate`。
+- [x] 来源声明 `source <expr> as asserted|assumed|inferred|disputed`，用于 context/knowledge/interpretation。
+- [x] `lexicon ... for ...` 解析；`use lexicon "...";` 导入（无别名时从路径派生）。
+- [x] interpretation 支持 `assume`（不进问询队列）与 lexicon 导入；exchange/interpretation 校验同步。
+- [x] `delegate` 请求语法解析（`DelegationDocument`）：scope/autonomy/budget/requires/requiresEvidence/approval/onConflict/onUncertainty/revokeBy/expires。
+- [x] `parseBundle`：一个文件可含 spec + interpretation + delegate；`parse` 仍只接受单文档。
+- [x] `canonical()` 剥离 `typeExpr`、空 `output`/`knowledge`/`verification`，旧 digest 不变。
+- [x] EBNF 补入 `bundle`、`delegationDef`、`environmentDef` 三块。
+- [x] CLI 新增 `parse FILE` 与 `npm run parse:examples`。
+- [x] `examples/酒店预订.gil`、`examples/机器人导航.gil` 均可解析。
+- [x] 测试 188 pass / 0 fail；7 个 demo + parse:examples + check:clinical 全绿。
+- [x] 文档：`docs/core-profile.md` 改写"解析 vs 求值"边界，README 与 CLAUDE.md 同步。
 
-## 未完成 / 后续
+## 仍未实现（求值层）
 
-- A23 仍为 🟡：预算消耗未绑定真实任务创建。
-- 生产件缺口：真实身份认证、签名与时间戳、失效依赖图、持久化、跨进程事务。
-- 检索来源未接真实 EDC/eTMF 接口。
+- 量词、单位运算、knowledge 语义效力、prefer 排序、`-> T` 返回值、failure/retryable/reversibility/compensate、verification 验证器调用 → checker 报 `UNSUPPORTED_EXPRESSION`，模拟器报 `UNSUPPORTED_PROFILE`。
+- `ontology { type T = ... }`、无体 relation、表达式索引 `x[0]`、Core 中的 `in`、取模 `%`。
+- Workspace 持久化、视图投影、访问控制；RL 的 POMDP 与策略学习。
+- 生产件：真实身份、签名与时间戳、跨进程事务。
 
-## Git
+## 历史阶段
 
-`.gitstore/` 中已有提交；`mv .gitstore .git` 恢复标准布局。
+Phase5（阻断项/期限/时间语义）与 RL/Workspace 两层的落地记录见 `.context/note.md`。

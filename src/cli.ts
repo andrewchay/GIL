@@ -4,7 +4,7 @@ import { assuranceDemo } from './assurance-demo.ts';
 import { governanceDemo } from './governance-demo.ts';
 import { rlDemo } from './rl-demo.ts';
 import { workspaceDemo } from './workspace-demo.ts';
-import { parse, parseInterpretation } from './parser.ts';
+import { parse, parseBundle, parseInterpretation } from './parser.ts';
 import { sourceArtifact } from './interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from './exchange.ts';
 import { canonical, contentHash } from './canonical.ts';
@@ -14,7 +14,7 @@ import { GilError } from './ast.ts';
 import type { Spec, Ontology } from './ast.ts';
 import type { State } from './runtime.ts';
 
-const usage = 'Usage: node src/cli.ts ast FILE | check SPEC ONTOLOGY... | simulate SPEC ONTOLOGY FIXTURE.json | clarify INTERPRETATION FIXTURE.json [--demo-answer]';
+const usage = 'Usage: node src/cli.ts ast FILE | parse FILE | check SPEC ONTOLOGY... | simulate SPEC ONTOLOGY FIXTURE.json | clarify INTERPRETATION FIXTURE.json [--demo-answer]';
 function emit(value: unknown): void { process.stdout.write(JSON.stringify(value, null, 2) + '\n'); }
 function load(path: string) { return parse(readFileSync(path, 'utf8')); }
 function program(specPath: string, ontologyPaths: string[]) {
@@ -51,6 +51,12 @@ try {
     const result = delegationDemo() as { ok: boolean };
     emit(result);
     if (!result.ok) process.exitCode = 1;
+  } else if (command === 'parse' && args.length === 1) {
+    // 只证明文件能被解析成哪些顶层项，不做类型检查、不执行、不授权。
+    const items = parseBundle(readFileSync(args[0], 'utf8'));
+    emit({ ok: true, mode: 'parse-only',
+      warning: 'PARSED ONLY: parsing is not type-checking, not evaluation and not authorization',
+      items: items.map(item => ({ kind: item.kind, name: (item as { name?: string }).name })) });
   } else if (command === 'ast' && args.length === 1) {
     const doc = load(args[0]);
     emit({ hash: contentHash(doc), ast: JSON.parse(canonical(doc)) });

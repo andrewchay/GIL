@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parse } from '../src/parser.ts';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { parse, parseBundle } from '../src/parser.ts';
 import { canonical, contentHash, PROFILE } from '../src/canonical.ts';
 import { GilError } from '../src/ast.ts';
 import type { Document, Expr, Spec } from '../src/ast.ts';
@@ -141,29 +143,164 @@ test('bad syntax always throws a located GilError', () => {
   assert.throws(() => parse('// header\nspec s version "1" {\n  state { x: Bool = ; }\n}'), /at 3:21$/);
 });
 
-test('unsupported Core and outer-layer constructs are explicitly rejected', () => {
+test('constructs still outside the implemented profile are explicitly rejected', () => {
+  // 仍是未实现能力：细分类型声明、无体关系、索引、Core 中的 in、取模。
   for (const text of [
-    'lexicon "l" version "1" {}', 'environment e {}', 'delegate d {}',
     'ontology "o" version "1" { type T = Text; }',
     'ontology "o" version "1" { relation p(): Bool; }',
-    'spec s version "1" { use lexicon "l" as L; }',
-    'spec s version "1" { knowledge {} }', 'spec s version "1" { output {} }',
-    'spec s version "1" { verification {} }',
-    'spec s version "1" { state { x: Option<Text>; } }',
-    'spec s version "1" { goals { prefer g: minimize x priority 1; } }',
-    'spec s version "1" { goals { achieve g: forall x: Bool. x; } }',
-    'spec s version "1" { goals { achieve g: eventually within 2 true; } }',
     'spec s version "1" { goals { achieve g: x[0]; } }',
     'spec s version "1" { goals { achieve g: x in y; } }',
     'spec s version "1" { goals { achieve g: 2 % 1 == 0; } }',
-    'spec s version "1" { context { x: Bool = true source evidence; } }',
-    'spec s version "1" { action { action a() preserves true; } }',
-    'spec s version "1" { action { action a() -> Bool; } }',
   ]) rejected(text, 'UNSUPPORTED_SYNTAX');
+  // 语法不完整：缺 for / 缺 reward / 缺参数表 / 缺界限单位。
+  for (const text of [
+    'lexicon "l" version "1" {}', 'environment e {}', 'delegate d {}',
+    'spec s version "1" { goals { achieve g: eventually within 2 true; } }',
+  ]) rejected(text);
+});
+
+test('type constructors are parsed, and Entity/Option keep their arguments', () => {
+  const doc = parse(`spec s version "1" { state { a: Option<Text>; b: Entity<H.Customer>; c: Set<Order>; d: A | B; } }`) as Spec;
+  assert.equal(doc.state[0].type, 'Option<Text>');
+  assert.equal(doc.state[1].type, 'Entity<H.Customer>');
+  assert.equal(doc.state[2].type, 'Set<Order>');
+  assert.equal(doc.state[3].type, 'A | B');
+  // 简单名字不保留冗余结构；构造类型才带 typeExpr。
+  const simple = parse('spec s version "1" { state { x: Bool; } }') as Spec;
+  assert.equal(simple.state[0].typeExpr, undefined);
+  assert.deepEqual(doc.state[1].typeExpr, { kind: 'apply', name: ['Entity'], args: [{ kind: 'name', path: ['H', 'Customer'] }] });
+});
+
+test('output, knowledge and verification sections are parsed with their own semantics', () => {
+  const doc = parse(`spec s version "1" {
+    output { chosen: Booking; }
+    knowledge {
+      open policy: CancellationPolicy;
+      assert open24: hotel.isOpen == true source "feed" as asserted;
+      ambiguous changeMeaning { candidates ChangeIn, ChangeOut; }
+      assume travel: slot <= 24.hours source "policy" as inferred;
+    }
+    verification { verify noDouble by modelCheck("m") under a, b; }
+  }`) as Spec;
+  assert.equal(doc.output[0].name, 'chosen');
+  assert.equal(doc.knowledge.length, 4);
+  const claim = doc.knowledge[1];
+  assert.equal(claim.kind, 'claim');
+  if (claim.kind !== 'claim') return;
+  assert.equal(claim.modality, 'assert');
+  // 知识标签不是真值：asserted 只说明谁断言，不说明命题为真。
+  assert.equal(claim.provenance?.label, 'asserted');
+  assert.equal(doc.verification[0].verifier.name[0], 'modelCheck');
+  assert.equal(doc.verification[0].under.length, 2);
+});
+
+test('prefer carries direction and priority, while achieve stays a plain claim', () => {
+  const doc = parse(`spec s version "1" { goals {
+    achieve booked: eventually within 2.minutes x == 1;
+    prefer cost: minimize total priority 1;
+  } }`) as Spec;
+  assert.equal(doc.goals[0].kind, undefined);
+  assert.deepEqual(doc.goals[0].expr, { kind: 'unary', op: 'eventually',
+    arg: { kind: 'bounded', value: 2, unit: 'minutes', arg: { kind: 'binary', op: '==', left: ref('x'), right: literal(1) } } });
+  assert.equal(doc.goals[1].kind, 'prefer');
+  assert.equal(doc.goals[1].direction, 'minimize');
+  assert.equal(doc.goals[1].priority, 1);
+});
+
+test('quantifiers accept shared types and do not confuse the separator dot with a qualified name', () => {
+  const doc = parse(`spec s version "1" { goals { achieve g:
+    exists b: H.Booking. chosen == b; } constraints { require r:
+    always forall b1 b2: H.Booking. b1.room == b2.room; } }`) as Spec;
+  assert.deepEqual(doc.goals[0].expr, { kind: 'quantifier', quantifier: 'exists',
+    bindings: [{ name: 'b', type: 'H.Booking' }],
+    body: { kind: 'binary', op: '==', left: ref('chosen'), right: ref('b') } });
+  const always = doc.constraints[0].expr;
+  assert.equal(always.kind, 'unary');
+  if (always.kind !== 'unary' || always.arg.kind !== 'quantifier') return assert.fail('expected quantified constraint');
+  assert.equal(always.arg.bindings.length, 2);
+  assert.equal(always.arg.bindings[0].type, 'H.Booking');
+});
+
+test('action contracts carry returns, preserves, failures and reversibility', () => {
+  const doc = parse(`spec s version "1" { action { action confirm(r: Request) -> Booking
+    requires available(r)
+    ensures result == r
+    writes bookings
+    preserves everythingExcept(bookings)
+    atomic
+    failure RoomUnavailable, PaymentRejected
+    retryable false
+    reversibility compensable
+    compensate cancel(result); } }`) as Spec;
+  const action = doc.actions[0];
+  assert.equal(action.returns, 'Booking');
+  assert.deepEqual(action.preserves, [{ kind: 'call', path: ['everythingExcept'], args: [ref('bookings')] }]);
+  assert.deepEqual(action.failures, ['RoomUnavailable', 'PaymentRejected']);
+  assert.equal(action.retryable, false);
+  assert.equal(action.reversibility, 'compensable');
+  assert.equal(action.compensate?.kind, 'call');
+  // 具名结果是显式契约，不是异常。
+  assert.equal(action.atomic, true);
+});
+
+test('lexicon definitions map phrases to candidates without assigning meaning', () => {
+  const doc = parse('lexicon "hotel/english@2" version "1" for "hotel/core@3" { phrase "book" => candidate H.Book; phrase "change" => candidates H.ChangeIn, H.ChangeOut; }');
+  assert.equal(doc.kind, 'lexicon');
+  if (doc.kind !== 'lexicon') return;
+  assert.equal(doc.ontology, 'hotel/core@3');
+  assert.deepEqual(doc.entries[0].candidates, [['H', 'Book']]);
+  assert.equal(doc.entries[1].candidates.length, 2);
+});
+
+test('the hotel example parses as a bundle of spec, interpretation and delegate', () => {
+  const items = parseBundle(readFileSync(new URL('../examples/酒店预订.gil', import.meta.url), 'utf8'));
+  assert.deepEqual(items.map(item => item.kind), ['spec', 'interpretation', 'delegate']);
+  const spec = items[0];
+  if (spec.kind !== 'spec') return assert.fail('expected spec');
+  assert.equal(spec.name, 'HotelBooking');
+  assert.equal(spec.imports[0].layer, undefined);
+  assert.equal(spec.context[0].type, 'Entity<H.Customer>');
+  // 来源标签只记录谁断言，不提升为已验证。
+  assert.equal(spec.context[0].provenance?.label, 'asserted');
+  assert.equal(spec.knowledge[0].kind, 'open');
+  assert.equal(spec.actions[0].failures?.length, 2);
+  const interpretation = items[1];
+  if (interpretation.kind !== 'interpretation') return assert.fail('expected interpretation');
+  // assume 是已声明的假设，不进入待澄清队列。
+  assert.equal(interpretation.items.filter(item => item.kind === 'assume').length, 1);
+  assert.equal(interpretation.imports[1].layer, 'lexicon');
+  const delegation = items[2];
+  if (delegation.kind !== 'delegate') return assert.fail('expected delegate');
+  assert.equal(delegation.scope[0], 'TravelScope');
+  assert.equal(delegation.autonomy, 'bounded');
+  assert.deepEqual(delegation.budget, { amount: 300, currency: 'USD' });
+  // 语法里的 scope/budget/autonomy 是请求，不是授权。
+  assert.equal(delegation.expires?.unit, 'hours');
+});
+
+test('parse still rejects a file holding more than one top-level document', () => {
+  assert.throws(() => parse('ontology "a" version "1" {} ontology "b" version "1" {}'),
+    (error: unknown) => error instanceof GilError && /Only one top-level document/.test(error.message));
 });
 
 test('canonical rejects non-finite numeric AST values', () => {
   const doc = parse('spec s version "1" { state { x: Real = 1; } }') as Spec;
   doc.state[0].value = literal(Infinity);
   assert.throws(() => canonical(doc), (error: unknown) => error instanceof GilError && error.code === 'CANONICAL_ERROR');
+});
+
+test('parse CLI reports top-level items and never claims verification', () => {
+  const root = fileURLToPath(new URL('../', import.meta.url));
+  const run = (file: string) => JSON.parse(spawnSync(process.execPath, ['src/cli.ts', 'parse', file],
+    { cwd: root, encoding: 'utf8' }).stdout);
+  const hotel = run('examples/酒店预订.gil');
+  assert.equal(hotel.ok, true);
+  assert.equal(hotel.mode, 'parse-only');
+  assert.match(hotel.warning, /PARSED ONLY/);
+  assert.deepEqual(hotel.items, [
+    { kind: 'spec', name: 'HotelBooking' },
+    { kind: 'interpretation', name: 'I17' },
+    { kind: 'delegate', name: 'reschedule' },
+  ]);
+  assert.deepEqual(run('examples/机器人导航.gil').items, [{ kind: 'environment', name: 'RobotNavigation' }]);
 });
