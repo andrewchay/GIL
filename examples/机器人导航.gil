@@ -1,0 +1,61 @@
+// GIL-RL v0.1 示例：带随机滑动的机器人导航
+
+environment RobotNavigation version "0.1.0" {
+  state {
+    robot: Cell;
+    steps: Nat;
+  }
+
+  observation {
+    fullState;
+  }
+
+  initial {
+    robot == Start;
+    steps == 0;
+  }
+
+  action {
+    action move(direction: Direction)
+      requires passable(next(robot, direction))
+      writes robot, steps
+      ensures steps' == steps + 1
+      outcomes {
+        0.9 -> robot' == next(robot, direction);
+        0.1 -> robot' == robot;
+      };
+  }
+
+  termination {
+    success when atStation(robot);
+    failure when robot in HazardCells;
+    cutoff when steps == 100;
+  }
+
+  goals {
+    achieve arrive:
+      eventually within 100.steps atStation(robot);
+  }
+
+  constraints {
+    require avoidHazards:
+      always not robot in HazardCells;
+  }
+
+  reward {
+    discount 0.99;
+    horizon 100.steps;
+    aggregation expectedDiscountedReturn;
+
+    term arrival:
+      100 once entered(atStation(robot));
+
+    term elapsedTime:
+      -1 per step;
+  }
+
+  objective {
+    maximize expectedReturn
+    subjectTo arrive, avoidHazards;
+  }
+}

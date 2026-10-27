@@ -1,0 +1,97 @@
+// GIL v0.1 综合示例：酒店预订
+// 该示例用于展示语义结构，尚未绑定具体实现或真实证据。
+
+spec HotelBooking version "0.1.0" {
+  use ontology "hotel/core@3" as H;
+
+  context {
+    customer: Entity<H.Customer> = session.user
+      source "session.identity" as asserted;
+    timezone: TimeZone = customer.profile.timezone;
+  }
+
+  input {
+    request: H.BookingRequest;
+  }
+
+  output {
+    chosen: H.Booking;
+  }
+
+  state {
+    bookings: Set<H.Booking>;
+  }
+
+  knowledge {
+    open cancellationPolicy: H.CancellationPolicy;
+  }
+
+  goals {
+    achieve booked:
+      eventually within 2.minutes
+        exists b: H.Booking. chosen == b && b.status == CONFIRMED;
+
+    prefer cost:
+      minimize chosen.totalPrice priority 1;
+  }
+
+  constraints {
+    require noDoubleBooking:
+      always forall b1 b2: H.Booking.
+        b1.room == b2.room &&
+        overlaps(b1.stay, b2.stay) &&
+        active(b1) && active(b2)
+        => b1 == b2;
+
+    require authorizedSpending:
+      always chosen.totalPrice <= request.authorizedLimit;
+  }
+
+  action {
+    action confirm(request: H.BookingRequest) -> H.Booking
+      requires available(request.room, request.stay)
+      ensures result.room == request.room
+      ensures result.status == CONFIRMED
+      writes bookings, chosen
+      preserves everythingExcept(bookings, chosen)
+      atomic
+      failure RoomUnavailable, PaymentRejected
+      retryable false
+      reversibility compensable
+      compensate cancel(result);
+  }
+
+  verification {
+    verify noDoubleBooking by modelCheck("booking-model");
+    verify authorizedSpending by testSuite("spending-policy");
+  }
+}
+
+interpretation I17 of "Change my reservation to next Friday" {
+  use ontology "hotel/core@3" as H;
+  use lexicon "hotel/english@2";
+
+  ground sourceSpan("I17", 1, 1) -> session.user;
+  ground sourceSpan("I17", 2, 2) -> H.Booking;
+
+  ambiguous changeMeaning {
+    candidates H.ChangeCheckIn, H.ChangeCheckOut;
+  }
+
+  assume targetDate:
+    resolveRelativeDate(FRIDAY, session.now, session.timezone)
+    source "I17" as inferred;
+}
+
+// 以下为 GIL-Delegation 的具体语法示意，不属于 Core。
+delegate reschedule(booking) to assistant
+  within TravelScope
+  autonomy bounded
+  budget 300.USD
+  requires resolved(cancellationPolicy)
+  requiresEvidence priceCheck
+  approval customer when irreversible(action)
+  onConflict ask customer
+  onUncertainty escalate
+  revokeBy customer
+  expires 24.hours after acceptance;

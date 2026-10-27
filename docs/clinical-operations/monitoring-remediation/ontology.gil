@@ -1,0 +1,39 @@
+ontology "clinical/training-remediation" version "0.1" {
+  concept Requirement {
+    identity requirementId: Text;
+    contentHash: Text;
+    studyId: Text;
+    siteId: Text;
+    findingId: Text;
+    staffId: Text;
+    protocolVersion: Text;
+  }
+
+  concept EvidenceBundle {
+    identity bundleId: Text;
+    contentHash: Text;
+    requirementHash: Text;
+    studyId: Text;
+    siteId: Text;
+    findingId: Text;
+    staffId: Text;
+    protocolVersion: Text;
+    complete: Bool;
+    readable: Bool;
+    authenticityEstablished: Bool;
+    policyChecksPass: Bool;
+  }
+
+  relation scopeMatches(e: EvidenceBundle, r: Requirement): Bool =
+    e.studyId == r.studyId &&
+    e.siteId == r.siteId &&
+    e.findingId == r.findingId &&
+    e.staffId == r.staffId;
+
+  relation evidenceReady(e: EvidenceBundle, r: Requirement): Bool =
+    scopeMatches(e, r) &&
+    e.requirementHash == r.contentHash &&
+    e.protocolVersion == r.protocolVersion &&
+    e.complete && e.readable &&
+    e.authenticityEstablished && e.policyChecksPass;
+}

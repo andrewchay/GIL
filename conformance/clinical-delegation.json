@@ -1,0 +1,26 @@
+{
+  "notice": "SYNTHETIC ONLY: registry, grants, acceptance and approvals are simulated",
+  "now": 1793016000000,
+  "scope": { "studyId": "STUDY-DEMO", "siteId": "SITE-DEMO", "findingId": "FINDING-DEMO" },
+  "identities": [
+    { "actorId": "COORD-DEMO", "kind": "human", "role": "Coordinator" },
+    { "actorId": "CRA-DEMO", "kind": "human", "role": "CRA" },
+    { "actorId": "CTM-DEMO", "kind": "human", "role": "CTM" },
+    { "actorId": "SERVICE-DEMO", "kind": "human", "role": "Service" },
+    { "actorId": "AGENT-DEMO", "kind": "agent", "role": "Agent" }
+  ],
+  "grantTemplates": [
+    { "id": "G-SERVICE", "actorId": "SERVICE-DEMO", "actions": ["recordAcceptedPlan", "invalidateReview"] },
+    { "id": "G-COORD", "actorId": "COORD-DEMO", "actions": ["submitEvidence"] },
+    { "id": "G-CRA", "actorId": "CRA-DEMO", "actions": ["recordReviewPass", "requestChanges"] },
+    { "id": "G-CTM", "actorId": "CTM-DEMO", "actions": ["closeFinding", "approveClosure", "reopenFinding", "updateRequirement"] },
+    { "id": "G-AGENT", "actorId": "AGENT-DEMO", "actions": ["dispatchTask"] }
+  ],
+  "steps": [
+    { "actorId": "SERVICE-DEMO", "action": "recordAcceptedPlan" },
+    { "actorId": "COORD-DEMO", "action": "submitEvidence" },
+    { "actorId": "CRA-DEMO", "action": "recordReviewPass" },
+    { "actorId": "AGENT-DEMO", "action": "closeFinding", "expectDenied": true },
+    { "actorId": "CTM-DEMO", "action": "closeFinding", "approve": true }
+  ]
+}

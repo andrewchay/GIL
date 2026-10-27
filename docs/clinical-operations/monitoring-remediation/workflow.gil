@@ -1,0 +1,141 @@
+spec clinical.TrainingRemediation version "0.1" {
+  use ontology "clinical/training-remediation@0.1" as C;
+
+  context {
+    OPEN: Text = "OPEN";
+    IN_REMEDIATION: Text = "IN_REMEDIATION";
+    SUBMITTED: Text = "SUBMITTED";
+    CHANGES_REQUIRED: Text = "CHANGES_REQUIRED";
+    REVIEWED: Text = "REVIEWED";
+    CLOSED: Text = "CLOSED";
+  }
+
+  input {
+    stagedEvidence: C.EvidenceBundle;
+    blockingItemsResolved: Bool;
+    reviewStillValid: Bool;
+    evaluatedReviewHash: Text;
+  }
+
+  state {
+    requirement: C.Requirement;
+    phase: Text = "OPEN";
+    acceptedPlanHash: Text = "";
+    currentEvidenceHash: Text = "";
+    reviewedEvidenceHash: Text = "";
+    reviewedRequirementHash: Text = "";
+    activeReviewHash: Text = "";
+  }
+
+  goals {
+    achieve resolved: eventually (phase == CLOSED);
+  }
+
+  constraints {
+    require knownPhase:
+      always (phase == OPEN || phase == IN_REMEDIATION ||
+        phase == SUBMITTED || phase == CHANGES_REQUIRED ||
+        phase == REVIEWED || phase == CLOSED);
+    require closedUsesReviewedVersions:
+      always (phase == CLOSED =>
+        currentEvidenceHash != "" &&
+        reviewedEvidenceHash == currentEvidenceHash &&
+        reviewedRequirementHash == requirement.contentHash);
+    require planBeforeClosure:
+      always (phase == CLOSED => acceptedPlanHash != "");
+  }
+
+  action {
+    action recordAcceptedPlan(planHash: Text)
+      requires phase == OPEN
+      requires planHash != ""
+      ensures phase' == IN_REMEDIATION
+      ensures acceptedPlanHash' == planHash
+      writes phase, acceptedPlanHash;
+
+    action submitEvidence()
+      requires phase == IN_REMEDIATION || phase == CHANGES_REQUIRED ||
+        phase == SUBMITTED || phase == REVIEWED
+      requires stagedEvidence.contentHash != ""
+      requires C.scopeMatches(stagedEvidence, requirement)
+      ensures currentEvidenceHash' == stagedEvidence.contentHash
+      ensures reviewedEvidenceHash' == ""
+      ensures reviewedRequirementHash' == ""
+      ensures activeReviewHash' == ""
+      ensures phase' == SUBMITTED
+      writes currentEvidenceHash, reviewedEvidenceHash,
+        reviewedRequirementHash, activeReviewHash, phase;
+
+    action recordReviewPass()
+      requires phase == SUBMITTED
+      requires stagedEvidence.contentHash == currentEvidenceHash
+      requires C.evidenceReady(stagedEvidence, requirement)
+      requires blockingItemsResolved
+      requires reviewStillValid
+      requires evaluatedReviewHash != ""
+      ensures reviewedEvidenceHash' == currentEvidenceHash
+      ensures reviewedRequirementHash' == requirement.contentHash
+      ensures activeReviewHash' == evaluatedReviewHash
+      ensures phase' == REVIEWED
+      writes reviewedEvidenceHash, reviewedRequirementHash, activeReviewHash, phase;
+
+    action requestChanges()
+      requires phase == SUBMITTED || phase == REVIEWED
+      ensures phase' == CHANGES_REQUIRED
+      ensures reviewedEvidenceHash' == ""
+      ensures reviewedRequirementHash' == ""
+      ensures activeReviewHash' == ""
+      writes phase, reviewedEvidenceHash, reviewedRequirementHash, activeReviewHash;
+
+    action invalidateReview()
+      requires phase == REVIEWED
+      requires evaluatedReviewHash == activeReviewHash
+      requires !reviewStillValid
+      ensures phase' == SUBMITTED
+      ensures reviewedEvidenceHash' == ""
+      ensures reviewedRequirementHash' == ""
+      ensures activeReviewHash' == ""
+      writes phase, reviewedEvidenceHash, reviewedRequirementHash, activeReviewHash;
+
+    action closeFinding()
+      requires phase == REVIEWED
+      requires acceptedPlanHash != ""
+      requires stagedEvidence.contentHash == currentEvidenceHash
+      requires C.evidenceReady(stagedEvidence, requirement)
+      requires reviewedEvidenceHash == currentEvidenceHash
+      requires reviewedRequirementHash == requirement.contentHash
+      requires activeReviewHash != ""
+      requires evaluatedReviewHash == activeReviewHash
+      requires reviewStillValid
+      requires blockingItemsResolved
+      ensures phase' == CLOSED
+      writes phase
+      atomic;
+
+    action updateRequirement(nextRequirement: C.Requirement)
+      requires nextRequirement.contentHash != ""
+      requires nextRequirement.contentHash != requirement.contentHash
+      requires nextRequirement.studyId == requirement.studyId
+      requires nextRequirement.siteId == requirement.siteId
+      requires nextRequirement.findingId == requirement.findingId
+      requires nextRequirement.staffId == requirement.staffId
+      ensures requirement' == nextRequirement
+      ensures phase' == OPEN
+      ensures acceptedPlanHash' == ""
+      ensures reviewedEvidenceHash' == ""
+      ensures reviewedRequirementHash' == ""
+      ensures activeReviewHash' == ""
+      writes requirement, phase, acceptedPlanHash,
+        reviewedEvidenceHash, reviewedRequirementHash, activeReviewHash;
+
+    action reopenFinding()
+      requires phase == CLOSED
+      ensures phase' == OPEN
+      ensures acceptedPlanHash' == ""
+      ensures reviewedEvidenceHash' == ""
+      ensures reviewedRequirementHash' == ""
+      ensures activeReviewHash' == ""
+      writes phase, acceptedPlanHash, reviewedEvidenceHash,
+        reviewedRequirementHash, activeReviewHash;
+  }
+}

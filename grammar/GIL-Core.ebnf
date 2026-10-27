@@ -1,0 +1,136 @@
+(* GIL-Core v0.1 具体语法草案
+   规范对象是由本语法生成的带类型 AST。
+   词法细节、标准库和完整错误恢复规则留待实现规范。 *)
+
+document        ::= ontologyDef | lexiconDef | specification | interpretationDef ;
+
+ontologyDef     ::= "ontology" string "version" string
+                    "{" ontologyItem* "}" ;
+ontologyItem    ::= conceptDecl | relationDecl | constraintDecl | typeDecl ;
+conceptDecl     ::= "concept" name "{" conceptMember* "}" ;
+conceptMember   ::= "identity" name ":" typeExpr ";"
+                  | fieldDecl
+                  | constraintDecl ;
+relationDecl    ::= "relation" name "(" parameters? ")" ":" typeExpr
+                    ("=" expression)? ";" ;
+constraintDecl  ::= "constraint" name ":" expression ";" ;
+fieldDecl       ::= name ":" typeExpr ";" ;
+
+lexiconDef      ::= "lexicon" string "version" string "for" string
+                    "{" lexiconEntry* "}" ;
+lexiconEntry    ::= "phrase" string "=>"
+                    ("candidate" reference | "candidates" referenceList) ";" ;
+
+specification   ::= "spec" qualifiedName "version" string
+                    "{" importDecl* section* "}" ;
+importDecl      ::= "use" ("ontology" | "lexicon") string ("as" name)? ";" ;
+section         ::= contextSection | inputSection | outputSection | stateSection
+                  | knowledgeSection | goalsSection | constraintsSection
+                  | actionSection | verificationSection ;
+
+contextSection  ::= "context" "{" contextBinding* "}" ;
+contextBinding  ::= name ":" typeExpr ("=" expression)? provenance? ";" ;
+inputSection    ::= "input" "{" typedDecl* "}" ;
+outputSection   ::= "output" "{" typedDecl* "}" ;
+stateSection    ::= "state" "{" typedDecl* "}" ;
+typedDecl       ::= name ":" typeExpr ("=" expression)? ";" ;
+typeDecl        ::= "type" name "=" typeExpr ";" ;
+
+knowledgeSection ::= "knowledge" "{" knowledgeItem* "}" ;
+knowledgeItem   ::= ("assert" | "assume") name ":" expression provenance? ";"
+                  | "open" name ":" typeExpr ";"
+                  | "ambiguous" name "{" "candidates" referenceList ";" "}"
+                  | "disputed" name ":" expression provenance? ";"
+                  | "operationalize" string "as" expression ";" ;
+provenance      ::= "source" expression
+                    ("as" ("asserted" | "assumed" | "inferred" | "disputed"))? ;
+
+goalsSection    ::= "goals" "{" goalDecl* "}" ;
+goalDecl        ::= "achieve" name ":" expression ";"
+                  | "prefer" name ":" ("minimize" | "maximize") expression
+                    "priority" integer ";" ;
+constraintsSection
+                ::= "constraints" "{" requireDecl* "}" ;
+requireDecl     ::= "require" name ":" expression ";" ;
+
+actionSection   ::= "action" "{" actionDecl* "}" ;
+actionDecl      ::= "action" name "(" parameters? ")" ("->" typeExpr)?
+                    actionClause* ";" ;
+actionClause    ::= "requires" expression
+                  | "ensures" expression
+                  | "writes" referenceList
+                  | "preserves" expression
+                  | "outcomes" "{" outcomeDecl* "}"
+                  | "failure" nameList
+                  | "atomic"
+                  | "retryable" boolean
+                  | "reversibility" ("reversible" | "compensable" | "irreversible")
+                  | "compensate" expression ;
+outcomeDecl     ::= decimal "->" expression ";" ;
+
+verificationSection
+                ::= "verification" "{" verificationDecl* "}" ;
+verificationDecl
+                ::= "verify" reference "by" verifierCall
+                    ("under" referenceList)? ";" ;
+verifierCall    ::= qualifiedName "(" arguments? ")" ;
+
+interpretationDef
+                ::= "interpretation" name "of" string
+                    "{" importDecl* interpretationItem* "}" ;
+interpretationItem
+                ::= "ground" sourceRef "->" expression provenance? ";"
+                  | knowledgeItem ;
+sourceRef       ::= name "(" arguments? ")" ;
+
+parameters      ::= parameter ("," parameter)* ;
+parameter       ::= name ":" typeExpr ;
+arguments       ::= expression ("," expression)* ;
+referenceList   ::= reference ("," reference)* ;
+nameList        ::= name ("," name)* ;
+reference       ::= qualifiedName ;
+
+typeExpr        ::= unionType ;
+unionType       ::= postfixType ("|" postfixType)* ;
+postfixType     ::= primaryType ("<" typeArguments ">" | "?")* ;
+primaryType     ::= qualifiedName
+                  | "{" name ":" typeExpr "|" expression "}"
+                  | "(" typeExpr ")" ;
+typeArguments   ::= typeExpr ("," typeExpr)* ;
+
+(* 表达式按优先级组织；时序表达式和量词属于 prefixExpr。 *)
+expression      ::= implicationExpr ;
+implicationExpr ::= orExpr ("=>" implicationExpr)? ;
+orExpr          ::= andExpr ("||" andExpr)* ;
+andExpr         ::= equalityExpr ("&&" equalityExpr)* ;
+equalityExpr    ::= relationalExpr (("==" | "!=") relationalExpr)* ;
+relationalExpr  ::= additiveExpr (("<" | "<=" | ">" | ">=" | "in") additiveExpr)* ;
+additiveExpr    ::= multiplicativeExpr (("+" | "-") multiplicativeExpr)* ;
+multiplicativeExpr
+                ::= unaryExpr (("*" | "/") unaryExpr)* ;
+unaryExpr       ::= ("!" | "-" | "not") unaryExpr | temporalExpr ;
+temporalExpr    ::= ("always" | "eventually" | "entered" | "changed") unaryExpr
+                  | "eventually" "within" expression unaryExpr
+                  | "after" expression unaryExpr
+                  | quantifierExpr
+                  | postfixExpr ;
+quantifierExpr  ::= ("forall" | "exists") nameList ":" typeExpr "." expression ;
+postfixExpr     ::= primaryExpr postfixOp* ;
+postfixOp       ::= "." name | "'" | "(" arguments? ")" | "[" expression "]" ;
+primaryExpr     ::= literal | reference | sourceRef
+                  | "(" expression ")"
+                  | "{" expressionList? "}" ;
+expressionList  ::= expression ("," expression)* ;
+literal         ::= string | decimal | integer | boolean | unitLiteral ;
+unitLiteral     ::= decimal "." name | integer "." name ;
+
+qualifiedName   ::= name ("." name)* ;
+name            ::= identifier ;
+boolean         ::= "true" | "false" ;
+identifier      ::= letter (letter | digit | "_")* ;
+integer         ::= digit+ ;
+decimal         ::= digit+ "." digit+ ;
+string          ::= "\"" stringCharacter* "\"" ;
+letter          ::= "A"…"Z" | "a"…"z" | "_" ;
+digit           ::= "0"…"9" ;
+stringCharacter ::= (* 除未转义双引号外的字符，转义规则由实现规范定义 *) ;

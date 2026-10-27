@@ -1,0 +1,28 @@
+{
+  "notice": "SYNTHETIC CORE-ONLY: no authorization, approval, authenticity verification or clinical system writes",
+  "initialState": {
+    "requirement": {
+      "requirementId": "REQ-DEMO", "contentHash": "REQ-H1",
+      "studyId": "STUDY-DEMO", "siteId": "SITE-DEMO",
+      "findingId": "FINDING-DEMO", "staffId": "STAFF-DEMO",
+      "protocolVersion": "PROTOCOL-V3"
+    }
+  },
+  "inputs": {
+    "stagedEvidence": {
+      "bundleId": "E-DEMO", "contentHash": "E-H1", "requirementHash": "REQ-H1",
+      "studyId": "STUDY-DEMO", "siteId": "SITE-DEMO",
+      "findingId": "FINDING-DEMO", "staffId": "STAFF-DEMO",
+      "protocolVersion": "PROTOCOL-V3", "complete": true, "readable": true,
+      "authenticityEstablished": true, "policyChecksPass": true
+    },
+    "blockingItemsResolved": true, "reviewStillValid": true,
+    "evaluatedReviewHash": "REVIEW-H1"
+  },
+  "steps": [
+    { "action": "recordAcceptedPlan", "params": { "planHash": "PLAN-H1" } },
+    { "action": "submitEvidence" },
+    { "action": "recordReviewPass" },
+    { "action": "closeFinding" }
+  ]
+}

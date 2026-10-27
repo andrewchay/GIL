@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# 临时仓库目录（沙箱环境无法写入 .git，重命名后即可使用）
+.gitstore/
+
+# Node (本项目零依赖，保留以防将来安装工具链)
+node_modules/
+*.log
+npm-debug.log*
+
+# 本地环境与密钥（绝不提交）
+.env
+.env.*
+*.pem
+*.key
+
+# 编辑器
+.idea/
+.vscode/
+*.swp

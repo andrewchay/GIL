@@ -1,0 +1,29 @@
+{
+  "notice": "SYNTHETIC ONLY: actors and reference catalog are fixtures, not authentication or authorization",
+  "source": { "id": "REQUEST-DEMO", "version": "1", "text": "把培训记录的问题处理掉" },
+  "candidateId": "TRAINING-INTENT-DEMO",
+  "references": [
+    "Clinical.TrainingRecord", "Clinical.Finding", "Clinical.PrepareEvidence",
+    "Clinical.SubmitForReview", "Clinical.RequestClosure"
+  ],
+  "types": ["Text", "Bool", "Int"],
+  "plan": {
+    "findingId": "${findingId}",
+    "applicableProtocolVersion": "${applicableProtocolVersion}",
+    "dueAt": "${remediationDueAt}",
+    "operation": "${intendedOperation}",
+    "execution": "not-authorized"
+  },
+  "affects": {
+    "findingId": ["prepareEvidence", "submitEvidence", "requestClosure"],
+    "applicableProtocolVersion": ["reviewEvidence", "requestClosure"],
+    "remediationDueAt": ["classifyOverdue"],
+    "intendedOperation": ["selectPlan", "requestClosure"]
+  },
+  "answers": {
+    "findingId": "FINDING-DEMO",
+    "applicableProtocolVersion": "PROTOCOL-V3",
+    "remediationDueAt": "2026-11-02T09:00:00+08:00",
+    "intendedOperation": "Clinical.PrepareEvidence"
+  }
+}

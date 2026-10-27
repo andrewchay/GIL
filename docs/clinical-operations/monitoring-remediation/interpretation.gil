@@ -1,0 +1,15 @@
+interpretation TrainingFindingIntent of "把培训记录的问题处理掉" {
+  use ontology "clinical/training-remediation@0.1" as Clinical;
+
+  ground sourceSpan("REQUEST-DEMO", 1, 5) -> Clinical.TrainingRecord;
+  ground sourceSpan("REQUEST-DEMO", 6, 8) -> Clinical.Finding;
+
+  open findingId: Text;
+  open applicableProtocolVersion: Text;
+  open remediationDueAt: Text;
+
+  ambiguous intendedOperation {
+    candidates Clinical.PrepareEvidence, Clinical.SubmitForReview,
+      Clinical.RequestClosure;
+  }
+}
