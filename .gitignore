@@ -2,7 +2,6 @@
 .DS_Store
 
 # 临时仓库目录（沙箱环境无法写入 .git，重命名后即可使用）
-.gitstore/
 
 # Node (本项目零依赖，保留以防将来安装工具链)
 node_modules/

@@ -252,7 +252,16 @@ export function check(linked: Linked): Diagnostic[] {
     for (const name of edges.keys()) visit(name);
   }
   const globals = [...spec.context, ...spec.input, ...spec.state];
-  unique([...spec.imports.map(i => i.alias), ...globals.map(b => b.name)], 'Spec namespace');
+  /*
+   * knowledge 名与 output 名进入同一命名空间。否则 `input { limit }` 会在
+   * 求值时先命中，`knowledge { open limit }` 被静默遮蔽，open 就失去作用。
+   */
+  const knowledgeNames = (spec.knowledge ?? []).flatMap(item => item.kind === 'operationalize' ? [] : [item.name]);
+  const outputNames = (spec.output ?? []).map(binding => binding.name);
+  unique([...spec.imports.map(i => i.alias), ...globals.map(b => b.name), ...knowledgeNames], 'Spec namespace');
+  for (const name of outputNames) {
+    if (knowledgeNames.includes(name)) report('DUPLICATE_NAME', `Spec namespace: output ${name} shadows a knowledge item`);
+  }
   const globalScope: Scope = { bindings: new Map(globals.map(b => [b.name, b.type])), temporal: false, next: false };
   bindings(spec.context, globalScope, 'Context');
   bindings(spec.input, globalScope, 'Input', false);

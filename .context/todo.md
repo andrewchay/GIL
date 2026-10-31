@@ -1,5 +1,17 @@
 # 任务进度
 
+## 一致性修复（2026-10-31 完成，未提交）
+
+- [x] 时序绑定统一为 B1：`always`/`eventually`/`within` 绑定到比较级，Core 与 RL 一致；EBNF 同步。
+- [x] 临床 workflow.gil / ontology.gil 摘要改动前后逐字相同（已对照验证）。
+- [x] 酒店示例 `always chosen.totalPrice <= …` 现在按原意解析，无需改示例。
+- [x] knowledge 名与 context/input/state/output 冲突报 `DUPLICATE_NAME`。
+- [x] 顺带修复：两条 `operationalize` 曾因 name 为 undefined 被误判重复。
+- [x] parser 探测列表只保留未实现构造。
+- [x] 文档漂移：interpretation-profile、phase4/evaluation 计划状态、CLAUDE.md 旧规则、README 测试数。
+- [x] 218 pass；8 demo + parse:examples + check:clinical 全绿。
+- [ ] 提交：需用户执行 `mv .gitstore .git` 后提交（门禁禁止 GIT_DIR 覆盖）。
+
 ## 求值层补齐（2026-10-31 完成）
 
 - [x] 量词求值：`env.domains` 显式域，缺域 `UNBOUNDED_DOMAIN`；空域 forall=true / exists=false；域元素 validate；Unknown 优先于确定；全称/存在短路。

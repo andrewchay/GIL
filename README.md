@@ -162,7 +162,7 @@ RL 层（`environment` 文档）与 Workspace 层（工件、来源引用、快�
 
 Core 语法现已覆盖构造类型（`Entity<T>`、`Option<T>`、`Set<T>`、联合与记录）、`output`/`knowledge`/`verification` 章节、一阶量词、单位字面量、`prefer` 偏好、动作返回值与补偿、词法表定义、多文档 bundle，以及 `delegate` 请求语法。GIL-RL 的环境语法已写入正式 EBNF。
 
-215 项自动测试通过。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
+218 项自动测试通过。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
 
 **模拟 CLOSED 不代表临床发现获准关闭。** 真实身份、实际 Attestation、持久化审计和真实系统写入尚未实现；Grant/Approval 仅为模拟实现。A01–A30 是后续外层验收，不以 Core 单测替代。Int 使用安全整数；Decimal 为有限精度 Number，不用于精确金额或临床计算。
 

@@ -41,9 +41,10 @@
 - 两个示例文件都可解析：`npm run parse:examples` → 酒店（spec+interpretation+delegate）、机器人（environment）。`parseBundle` 才接受多文档，`parse` 仍只接受一个。
 - 已实现求值：量词（域由 `env.domains` 显式提供，缺域报 `UNBOUNDED_DOMAIN`）、knowledge 效力（open→Unknown、ambiguous→`AMBIGUOUS_REFERENCE`）、偏好排序（`src/preference.ts`，priority 字典序）、动作返回值（`-> T` 的 result 在 requires 之后校验）。
 - 仍未实现求值：单位算术（`24.hours` 无量纲模型，报 `UNSUPPORTED_PROFILE`）、compensate 执行、retryable 重试、verification 验证器调用。`ontology { type T = ... }` 与无体 relation 仍未实现。
-- **Core 的 `always`/`eventually` 只绑定紧随的 unary 表达式**（EBNF `temporalExpr`），包住比较必须加括号：`always (a == b)`。写成 `always a == b` 会得到 `(always a) == b` 并在 assertPure 处报错。临床 workflow 全部加了括号。GIL-RL 层相反（绑定整个比较级），两层不要跨层套用。
+- **时序绑定规则 B1（2026-10-31 定）**：`always`/`eventually`（含 `within`）绑定到比较级，Core 与 RL 一致。`always a == b` 即 `always (a == b)`；`always a == b && c` 是 `(always …) && c`，包住 `&&` 要加括号。`not` 在 Core 仍只绑定 unary。带括号的写法新旧 AST 相同，临床摘要未变。
+- knowledge 名与 context/input/state/output 同名报 `DUPLICATE_NAME`（否则 open 会被静默遮蔽）。`operationalize` 以原文短语为键，不占名字空间。
 - 量词域必须显式：Core 不推断"所有 Order"。域元素逐个 validate，类型不符是 `TYPE_ERROR` 而非静默跳过。
-- `knowledge` 名字与 globals 同名会遮蔽；knowledge claim 自引用报 `UNSUPPORTED_PROFILE`。手工构造的 spec 可能没有 knowledge 字段，`knowledgeValue` 用 `?? []` 兜底。
+- knowledge claim 自引用报 `UNSUPPORTED_PROFILE`。手工构造的 spec 可能没有 knowledge 字段，`knowledgeValue` 用 `?? []` 兜底。
 - 偏好排序的 Unknown 候选排在后面且 `complete:false`——不能把"取不到值"当"值很差不选"。
 - 本切片角色：协调员提交、CRA 复核、CTM 关闭；Agent 只检查建议受限分派。A01–A30 见 `docs/clinical-operations/monitoring-remediation/coverage.md`（29 已实现、1 部分、0 未实现）；未标"已实现"的条目不得视为通过。
 

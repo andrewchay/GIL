@@ -98,7 +98,13 @@ test('expression precedence follows Core EBNF, implication is right-associative'
   assert.deepEqual(expression('a < b == c >= d'), binary('==', binary('<', ref('a'), ref('b')), binary('>=', ref('c'), ref('d'))));
   assert.deepEqual(expression('!a == b'), binary('==', { kind: 'unary', op: '!', arg: ref('a') }, ref('b')));
   assert.deepEqual(expression('not a'), expression('!a'));
-  assert.deepEqual(expression('always a == b'), binary('==', { kind: 'unary', op: 'always', arg: ref('a') }, ref('b')));
+  // B1：时序运算符绑定到比较级，`&&` 仍在其外。
+  assert.deepEqual(expression('always a == b'), { kind: 'unary', op: 'always', arg: binary('==', ref('a'), ref('b')) });
+  assert.deepEqual(expression('always (a == b)'), expression('always a == b'));
+  assert.deepEqual(expression('always a == b && c'),
+    binary('&&', { kind: 'unary', op: 'always', arg: binary('==', ref('a'), ref('b')) }, ref('c')));
+  assert.deepEqual(expression('eventually a < b + 1'),
+    { kind: 'unary', op: 'eventually', arg: binary('<', ref('a'), binary('+', ref('b'), literal(1))) });
   assert.deepEqual(expression('eventually (a == b)'), { kind: 'unary', op: 'eventually', arg: binary('==', ref('a'), ref('b')) });
   assert.deepEqual(expression('-2 * (3 + 4) / 2'), binary('/', binary('*', { kind: 'unary', op: '-', arg: literal(2) }, binary('+', literal(3), literal(4))), literal(2)));
 });

@@ -115,8 +115,12 @@ additiveExpr    ::= multiplicativeExpr (("+" | "-") multiplicativeExpr)* ;
 multiplicativeExpr
                 ::= unaryExpr (("*" | "/") unaryExpr)* ;
 unaryExpr       ::= ("!" | "-" | "not") unaryExpr | temporalExpr ;
-temporalExpr    ::= ("always" | "eventually" | "entered" | "changed") unaryExpr
-                  | "eventually" "within" expression unaryExpr
+(* always / eventually 绑定到比较级（equalityExpr）：
+   `always a == b` 即 `always (a == b)`；`&&`、`||`、`=>` 在其外，需要括号才能包进去。
+   Core 与 RL 共用这条规则。 *)
+temporalExpr    ::= ("always" | "eventually") equalityExpr
+                  | "eventually" "within" unitLiteral equalityExpr
+                  | ("entered" | "changed") unaryExpr
                   | "after" expression unaryExpr
                   | quantifierExpr
                   | postfixExpr ;

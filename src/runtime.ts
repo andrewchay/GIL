@@ -208,7 +208,7 @@ function combine(quantifier: 'forall' | 'exists', values: (boolean | Unknown)[])
  */
 function knowledgeValue(name: string, linked: Linked, env: Environment): { found: true; value: Value } | { found: false } {
   // 手工构造的 spec 可能没有 knowledge 章节；缺失即"没有知识项"，不是错误。
-  const item = (linked.spec.knowledge ?? []).find(entry => entry.name === name);
+  const item = (linked.spec.knowledge ?? []).find(entry => entry.kind !== 'operationalize' && entry.name === name);
   if (!item) return { found: false };
   const marker = `knowledge:${name}`;
   const stack = env.callStack ?? [];

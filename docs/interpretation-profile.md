@@ -6,7 +6,7 @@
 
 解释侧车独立于 Core `Document` 与求值器。`parseInterpretation` 复用词法和表达式解析，不让协作接受改变 Core 真值。
 
-支持：interpretation、精确版本本体导入、ground sourceSpan → 显式目录引用、open、ambiguous。暂不支持 lexicon、assert/assume/disputed、任意接地表达式和自动自然语言编译。
+支持：interpretation、精确版本本体导入、`use lexicon` 导入（无 `as` 时从路径派生别名）、ground sourceSpan → 显式目录引用、open、ambiguous、assume（带来源标签，不进入澄清问题队列）。暂不支持 interpretation 内的 assert/disputed、任意接地表达式和自动自然语言编译。
 
 候选集合由一个解释中的 ambiguous 引用表达；本轮不生成所有组合 AST，也不自动选择最高概率解释。候选目录是显式测试上下文，不是通用本体或权限系统。
 

@@ -88,7 +88,8 @@ class Parser {
   accept(text: string): boolean { if (!this.is(text)) return false; this.take(); return true; }
   expect(text: string): void {
     if (this.accept(text)) return;
-    if (['in', 'within', 'after', 'source', '[', '{', '%', '?', '|'].some(t => this.is(t))) this.unsupported('Syntax construct');
+    // 只列仍未实现的构造；`{`、`?`、`|`、`source`、`within` 已有语法，走普通 PARSE_ERROR。
+    if (['in', 'after', '[', '%'].some(t => this.is(t))) this.unsupported('Syntax construct');
     fail(this.peek(), `Expected ${JSON.stringify(text)}, found ${JSON.stringify(this.peek().text)}`);
   }
   name(): string {
@@ -391,7 +392,10 @@ class Parser {
         if (section === 'context' || section === 'input' || section === 'output' || section === 'state') {
           const item = this.binding(true); this.unique(names, item.name, itemToken); this.expect(';'); result[section].push(item);
         } else if (section === 'knowledge') {
-          const item = this.knowledgeItem(); this.unique(names, item.name, itemToken, 'knowledge item');
+          // operationalize 以原文短语为键，不占用名字空间。
+          const item = this.knowledgeItem();
+          const key = item.kind === 'operationalize' ? `operationalize:${item.text}` : item.name;
+          this.unique(names, key, itemToken, 'knowledge item');
           result.knowledge.push(item);
         } else if (section === 'verification') {
           const item = this.verification(); this.unique(names, item.target.join('.'), itemToken, 'verification target');
@@ -760,8 +764,14 @@ class Parser {
         // 时间界限绑定其后的完整表达式：`eventually within 2.minutes e`。
         return { kind: 'unary', op, arg: { kind: 'bounded', value: bound.value, unit: bound.unit, arg: this.expression(4) } };
       }
-      // RL 里 not/always/eventually 必须绑定到整个比较表达式，否则 `not x in S` 会错解成 `(!x) in S`。
-      if (this.rl && op !== '-') return { kind: 'unary', op, arg: this.expression(4) };
+      /*
+       * 时序运算符绑定到比较级（B1）：`always a == b` 即 `always (a == b)`，
+       * `&&`、`||`、`=>` 仍需括号。Core 与 RL 共用这条规则。
+       * `not`/`!` 在 Core 仍只绑定 unary；RL 里 `not x in S` 需要绑定整个比较。
+       */
+      if (op === 'always' || op === 'eventually' || (this.rl && op !== '-')) {
+        return { kind: 'unary', op, arg: this.expression(4) };
+      }
       return { kind: 'unary', op, arg: this.prefix() };
     }
     if (this.accept('(')) { const expr = this.expression(); this.expect(')'); return expr; }

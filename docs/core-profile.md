@@ -40,16 +40,20 @@ checker 与模拟器实际判定的范围：
 
 这些未实现的构造继续报 `UNSUPPORTED_EXPRESSION` / `UNSUPPORTED_PROFILE`，**不会静默当作已满足**。
 
-### 一个语法陷阱
+### 时序运算符的绑定范围
 
-Core 的 `always` / `eventually` 只绑定紧随其后的 unary 表达式（见 EBNF 的 `temporalExpr`）。要包住整个比较必须加括号：
+`always` / `eventually` 绑定到比较级（2026-10-31 统一为此规则）：
 
 ```text
-always (phase == CLOSED);          // 正确：always 作用于比较
-always phase == CLOSED;            // 实际解析为 (always phase) == CLOSED
+always phase == CLOSED;            // 即 always (phase == CLOSED)
+always a == b && c;                // 即 (always a == b) && c
+always (a == b && c);              // 要包住 && 必须加括号
+eventually within 2.minutes x > 0; // 与 always 同一规则
 ```
 
-临床 workflow 的约束全部加了括号。GIL-RL 层则相反，`always` 绑定整个比较级表达式——两层语义不同，不要跨层套用。
+Core 与 GIL-RL 共用这条规则。`not` / `!` 在 Core 仍只绑定 unary：`not a == b` 是 `(not a) == b`。
+
+此前 `always a == b` 被解析成 `(always a) == b`，与规范正文示例相矛盾。带括号的写法在新旧规则下 AST 完全相同，临床文档的摘要没有变化。
 
 一个具体例子：`knowledge { assert open24: hotel.isOpen == true source "feed" as asserted; }` 解析后，`asserted` 只记录谁做了断言。它不使命题为真，也不进入约束求值。
 

@@ -151,3 +151,39 @@ test('the evaluation CLI demo exercises every new decision path', () => {
   assert.deepEqual(out.contract.requiresFailed.declaredFailures, ['OverBudget']);
   assert.equal(out.contract.requiresFailed.retryable, false);
 });
+
+test('a knowledge item cannot share a name with a global, so open is never shadowed', () => {
+  const shadowed = link(parse(`spec s version "1" {
+    input { limit: Int; } state { x: Int; }
+    knowledge { open limit: Int; }
+    constraints { require r: limit > 0; } }`) as Spec, []);
+  assert.ok(check(shadowed).some(entry => entry.code === 'DUPLICATE_NAME' && /limit/.test(entry.message)));
+  const output = link(parse(`spec s version "1" {
+    output { chosen: Int; } state { x: Int; }
+    knowledge { open chosen: Int; } }`) as Spec, []);
+  assert.ok(check(output).some(entry => entry.code === 'DUPLICATE_NAME' && /chosen/.test(entry.message)));
+});
+
+test('operationalize items are keyed by phrase and never enter the name space', () => {
+  const doc = parse(`spec s version "1" { state { x: Int; }
+    knowledge { operationalize "soon" as x > 0; operationalize "late" as x > 9; } }`) as Spec;
+  assert.equal(doc.knowledge.length, 2);
+  assert.deepEqual(check(link(doc, [])).filter(entry => entry.code === 'DUPLICATE_NAME'), []);
+  assert.throws(() => parse(`spec s version "1" { knowledge { operationalize "soon" as true; operationalize "soon" as false; } }`),
+    (error: unknown) => error instanceof GilError && error.code === 'DUPLICATE_CLAUSE');
+});
+
+test('B1: temporal operators bind to the comparison level in Core', () => {
+  const goal = (text: string) => (parse(`spec s version "1" { goals { achieve g: ${text}; } }`) as Spec).goals[0].expr;
+  // eventually within 与 always 共用同一绑定规则。
+  const bounded = goal('eventually within 2.minutes a == b');
+  const plain = goal('always a == b');
+  assert.equal(bounded.kind === 'unary' && bounded.arg.kind === 'bounded' && bounded.arg.arg.kind, 'binary');
+  assert.equal(plain.kind === 'unary' && plain.arg.kind, 'binary');
+  // && 仍在时序运算符之外，需要括号才能包进去。
+  const conj = goal('always a == b && c');
+  assert.equal(conj.kind === 'binary' && conj.op, '&&');
+  // not 在 Core 仍只绑定 unary。
+  const negated = goal('not a == b');
+  assert.equal(negated.kind === 'binary' && negated.op, '==');
+});
