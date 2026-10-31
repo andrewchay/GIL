@@ -1,32 +1,26 @@
 # 任务进度
 
-## Core 语法补齐：示例文件全部可解析（2026-10-27 完成）
+## 求值层补齐（2026-10-31 完成）
 
-- [x] `TypeExpr`：`Entity<T>`、`Option<T>`、`Set<T>`、`A | B`、`T?`、记录类型；`Binding.type` 保留规范文本，构造类型另存 `typeExpr`。
-- [x] 新增章节：`output`、`knowledge`（open/assert/assume/disputed/ambiguous/operationalize）、`verification`（verify/by/under）。
-- [x] `goals` 支持 `prefer ... minimize|maximize ... priority N`；`achieve` 不写 `kind`，保持既有摘要不变。
-- [x] 一阶量词 `forall`/`exists`：共享类型、空白分隔、分隔点消歧（类型最多两段且第二段大写）。
-- [x] 单位字面量 `24.hours`（`Expr.quantity`）与 `eventually within 2.minutes`（Core 单位白名单）。
-- [x] 动作契约扩展：`-> T`、`preserves`、`outcomes`、`failure`、`retryable`、`reversibility`、`compensate`。
-- [x] 来源声明 `source <expr> as asserted|assumed|inferred|disputed`，用于 context/knowledge/interpretation。
-- [x] `lexicon ... for ...` 解析；`use lexicon "...";` 导入（无别名时从路径派生）。
-- [x] interpretation 支持 `assume`（不进问询队列）与 lexicon 导入；exchange/interpretation 校验同步。
-- [x] `delegate` 请求语法解析（`DelegationDocument`）：scope/autonomy/budget/requires/requiresEvidence/approval/onConflict/onUncertainty/revokeBy/expires。
-- [x] `parseBundle`：一个文件可含 spec + interpretation + delegate；`parse` 仍只接受单文档。
-- [x] `canonical()` 剥离 `typeExpr`、空 `output`/`knowledge`/`verification`，旧 digest 不变。
-- [x] EBNF 补入 `bundle`、`delegationDef`、`environmentDef` 三块。
-- [x] CLI 新增 `parse FILE` 与 `npm run parse:examples`。
-- [x] `examples/酒店预订.gil`、`examples/机器人导航.gil` 均可解析。
-- [x] 测试 188 pass / 0 fail；7 个 demo + parse:examples + check:clinical 全绿。
-- [x] 文档：`docs/core-profile.md` 改写"解析 vs 求值"边界，README 与 CLAUDE.md 同步。
+- [x] 量词求值：`env.domains` 显式域，缺域 `UNBOUNDED_DOMAIN`；空域 forall=true / exists=false；域元素 validate；Unknown 优先于确定；全称/存在短路。
+- [x] knowledge 效力：open→Unknown（带原因），ambiguous→`AMBIGUOUS_REFERENCE`，assert/assume/disputed 提供定义但不提升真值，自引用报 `UNSUPPORTED_PROFILE`。
+- [x] 偏好排序 `src/preference.ts`：priority 字典序、方向应用、重复 priority 拒绝、非数值目标拒绝、Unknown 候选 `complete:false`。
+- [x] 动作返回值：`-> T` 的 `result` 在 requires 通过后校验，缺失 `MISSING_RESULT`、多余 `UNEXPECTED_RESULT`、requires 阶段读 result 报 `UNSUPPORTED_PROFILE`。
+- [x] 具名失败：requires 失败时 `declaredFailures` 列全部候选，不选一个；`retryable` 作为声明透出。
+- [x] `assertPure` 覆盖新节点（bounded/quantifier），避免量词体漏检 next-state 引用。
+- [x] 发现并记录既有语法陷阱：Core 的 `always`/`eventually` 只绑定紧随 unary 表达式，包住比较必须加括号。
+- [x] 新测试：`test/quantifier.test.ts`（12）、`test/preference.test.ts`（7）、`test/action-contract.test.ts`（7）。
+- [x] `demo:evaluation` 串起四项能力，输出 `synthetic-evaluation-simulation` + `authorization: not-implemented`。
+- [x] 文档：`docs/core-profile.md` 重写求值与语法陷阱章节；README、CLAUDE.md 同步。
 
-## 仍未实现（求值层）
+## 仍未实现
 
-- 量词、单位运算、knowledge 语义效力、prefer 排序、`-> T` 返回值、failure/retryable/reversibility/compensate、verification 验证器调用 → checker 报 `UNSUPPORTED_EXPRESSION`，模拟器报 `UNSUPPORTED_PROFILE`。
-- `ontology { type T = ... }`、无体 relation、表达式索引 `x[0]`、Core 中的 `in`、取模 `%`。
-- Workspace 持久化、视图投影、访问控制；RL 的 POMDP 与策略学习。
+- 单位算术（无量纲模型，`24.hours` 报 `UNSUPPORTED_PROFILE`）；`eventually within` 界限只记录不判定。
+- compensate 执行、retryable 重试语义、verification 验证器调用。
+- `ontology { type T = ... }`、无体 relation、索引 `x[0]`、Core 中 `in`、取模 `%`。
+- Workspace 持久化/视图投影/访问控制；RL 的 POMDP 与策略学习。
 - 生产件：真实身份、签名与时间戳、跨进程事务。
 
 ## 历史阶段
 
-Phase5（阻断项/期限/时间语义）与 RL/Workspace 两层的落地记录见 `.context/note.md`。
+Phase5、RL/Workspace 两层、Core 语法补齐的记录见 `.context/note.md`。

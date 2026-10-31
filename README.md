@@ -115,6 +115,7 @@ npm run demo:assurance         # 合成凭证：失效、挑战、重开、换�
 npm run demo:governance        # 合成治理：阻断项、逾期升级、拒绝回填日期
 npm run demo:rl                # 合成 RL：随机转移回放、终止三态、奖励分解
 npm run demo:workspace         # 合成工作空间：工件、快照、用户可控记忆
+npm run demo:evaluation        # 合成判定：量词域、knowledge 效力、偏好排序、返回值
 
 # 查看规范化 AST 及摘要
 node src/cli.ts ast docs/clinical-operations/monitoring-remediation/ontology.gil
@@ -141,9 +142,15 @@ Phase2 新增独立解释入口、来源接地、open/ambiguous、澄清回答�
 
 本原型只求值临床示例需要的有限子集。**解析能力比求值能力宽**：《酒店预订》与《机器人导航》两个完整示例现在都能被解析——酒店示例产出 spec + interpretation + delegate 三项，机器人示例产出 environment 一项。但解析通过不等于它们已被检查或求值。
 
-量词、单位运算、knowledge 的语义效力、prefer 的偏好排序、`-> T` 返回值传递、failure/retryable/reversibility/compensate 的运行时行为、verification 的实际验证器调用都还没有实现。这些构造进 AST 之后，checker 报 `UNSUPPORTED_EXPRESSION`，模拟器报 `UNSUPPORTED_PROFILE`，不会静默当作已满足。
+求值层现已覆盖四项：**一阶量词**（域必须由宿主显式提供，缺域报 `UNBOUNDED_DOMAIN`）、**knowledge 效力**（`open` 为 Unknown、`ambiguous` 拒绝被引用）、**偏好排序**（`priority` 字典序，Unknown 候选标记为不可比较）、**动作返回值**（`-> T` 的 `result` 必须显式提供，缺失报 `MISSING_RESULT`）。
 
-一个具体边界：`knowledge { assert x: hotel.isOpen == true source "feed" as asserted; }` 里的 `asserted` 只记录谁做了断言，不使命题为真，也不进入任何约束判定。
+仍未实现：**单位算术**（`24.hours` 没有量纲模型，不做求值，避免把 `24.minutes` 当 `24` 比较）、**补偿执行**、**重试语义**、**verification 的验证器调用**。这些继续报 `UNSUPPORTED_PROFILE`，不会静默当作已满足。
+
+三个具体边界：
+
+- `knowledge { open policy: CancellationPolicy; }` 之后引用 `policy` 得到 Unknown（缺一个值），不是"已满足"。
+- 偏好排序只回答"两个候选谁更优"，不回答"是否允许执行"。Unknown 候选标记为不可比较，不声称它更差。
+- 动作 `requires` 不满足时，声明的 `failure RoomUnavailable, PaymentRejected` 只被列为候选，模拟器不选其中一个。
 
 Phase3 提供固定计划、过程内模拟身份注册表、Grant/deny、共享动作预算、撤销、精确批准和线性审计链。旧 `simulate` 仍为纯 Core；新 `demo:delegation` 才演示模拟授权门。
 
@@ -155,7 +162,7 @@ RL 层（`environment` 文档）与 Workspace 层（工件、来源引用、快�
 
 Core 语法现已覆盖构造类型（`Entity<T>`、`Option<T>`、`Set<T>`、联合与记录）、`output`/`knowledge`/`verification` 章节、一阶量词、单位字面量、`prefer` 偏好、动作返回值与补偿、词法表定义、多文档 bundle，以及 `delegate` 请求语法。GIL-RL 的环境语法已写入正式 EBNF。
 
-188 项自动测试通过。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
+215 项自动测试通过。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
 
 **模拟 CLOSED 不代表临床发现获准关闭。** 真实身份、实际 Attestation、持久化审计和真实系统写入尚未实现；Grant/Approval 仅为模拟实现。A01–A30 是后续外层验收，不以 Core 单测替代。Int 使用安全整数；Decimal 为有限精度 Number，不用于精确金额或临床计算。
 

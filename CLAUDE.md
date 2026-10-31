@@ -39,7 +39,12 @@
 - canonical 摘要格式 `sha256:<hex>`，含 profile，数组保序；AST 摘要不证明语义等价。
 - 六层实现状态：Core / Exchange / Delegation / Assurance 有完整原型；Workspace 与 RL 有最小一致实现（无持久化、无 POMDP、无视图投影）。
 - 两个示例文件都可解析：`npm run parse:examples` → 酒店（spec+interpretation+delegate）、机器人（environment）。`parseBundle` 才接受多文档，`parse` 仍只接受一个。
-- 仍未实现求值：量词、单位运算、knowledge 语义效力、prefer 排序、`-> T` 返回值、failure/retryable/reversibility/compensate、verification 验证器调用。`ontology { type T = ... }` 与无体 relation 仍未实现。
+- 已实现求值：量词（域由 `env.domains` 显式提供，缺域报 `UNBOUNDED_DOMAIN`）、knowledge 效力（open→Unknown、ambiguous→`AMBIGUOUS_REFERENCE`）、偏好排序（`src/preference.ts`，priority 字典序）、动作返回值（`-> T` 的 result 在 requires 之后校验）。
+- 仍未实现求值：单位算术（`24.hours` 无量纲模型，报 `UNSUPPORTED_PROFILE`）、compensate 执行、retryable 重试、verification 验证器调用。`ontology { type T = ... }` 与无体 relation 仍未实现。
+- **Core 的 `always`/`eventually` 只绑定紧随的 unary 表达式**（EBNF `temporalExpr`），包住比较必须加括号：`always (a == b)`。写成 `always a == b` 会得到 `(always a) == b` 并在 assertPure 处报错。临床 workflow 全部加了括号。GIL-RL 层相反（绑定整个比较级），两层不要跨层套用。
+- 量词域必须显式：Core 不推断"所有 Order"。域元素逐个 validate，类型不符是 `TYPE_ERROR` 而非静默跳过。
+- `knowledge` 名字与 globals 同名会遮蔽；knowledge claim 自引用报 `UNSUPPORTED_PROFILE`。手工构造的 spec 可能没有 knowledge 字段，`knowledgeValue` 用 `?? []` 兜底。
+- 偏好排序的 Unknown 候选排在后面且 `complete:false`——不能把"取不到值"当"值很差不选"。
 - 本切片角色：协调员提交、CRA 复核、CTM 关闭；Agent 只检查建议受限分派。A01–A30 见 `docs/clinical-operations/monitoring-remediation/coverage.md`（29 已实现、1 部分、0 未实现）；未标"已实现"的条目不得视为通过。
 
 ## 核心架构与文件结构

@@ -4,6 +4,7 @@ import { assuranceDemo } from './assurance-demo.ts';
 import { governanceDemo } from './governance-demo.ts';
 import { rlDemo } from './rl-demo.ts';
 import { workspaceDemo } from './workspace-demo.ts';
+import { evaluationDemo } from './evaluation-demo.ts';
 import { parse, parseBundle, parseInterpretation } from './parser.ts';
 import { sourceArtifact } from './interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from './exchange.ts';
@@ -33,6 +34,10 @@ try {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'demo-assurance' && args.length === 0) {
     const result = assuranceDemo() as { ok: boolean };
+    emit(result);
+    if (!result.ok) process.exitCode = 1;
+  } else if (command === 'demo-evaluation' && args.length === 0) {
+    const result = evaluationDemo() as { ok: boolean };
     emit(result);
     if (!result.ok) process.exitCode = 1;
   } else if (command === 'demo-workspace' && args.length === 0) {

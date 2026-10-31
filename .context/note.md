@@ -1,5 +1,21 @@
 # GIL-language 项目调研与架构笔记
 
+## 2026-10-31 求值层：从"能解析"到"能判定"
+
+补了四项求值能力，每一项都在文档里写清"证明了什么、没证明什么"。
+
+**量词的域问题是核心决策。** `forall o: H.Order. o.total > 0` 里的"所有 Order"从哪来？Core 不能从 state 或本体声明推断——那等于凭空造出宇宙。所以域必须由宿主通过 `env.domains` 显式提供，缺域报 `UNBOUNDED_DOMAIN`。我特意让它 ill-formed 而不是 Unknown：这不是"信息不足"，是规约缺少可求值的域。空域按定义处理（forall 真、exists 假），这条写进了测试。
+
+**knowledge 的效力是第二个关键决策。** `open policy: CancellationPolicy;` 之后引用 `policy` 该怎样？我选了 Unknown 并带原因 `Open parameter policy has no value`。而 `ambiguous` 引用直接报 `AMBIGUOUS_REFERENCE`——规范说"歧义不是第四种真值，而是存在多个候选 AST"，所以不能选一个候选，也不能压成 Unknown。
+
+**发现了一个既有的真陷阱（不是 bug）。** `always budget > 0` 被解析成 `(always budget) > 0`。查了 EBNF：`temporalExpr ::= ("always"|...) unaryExpr`，确实如此。临床 workflow.gil 全部写成 `always (phase == CLOSED)` 加了括号，而酒店示例 `always chosen.totalPrice <= ...` 没加。既有测试 test/parser.test.ts:101 明确固定了这个 AST 形状。所以不改语义，改文档和 demo——把这个陷阱写进 core-profile 和 CLAUDE.md。RL 层是另一套（我早前改成绑定整个比较级），两层语义不同，要提醒别跨层套用。
+
+**顺序 bug 由测试抓出。** 我最初在 simulate 开头就校验 `MISSING_RESULT`，结果"requires 失败"的测试挂了——因为动作根本没执行，不该要求返回值。改成 requires 通过之后再校验 result。顺带加了"requires 阶段禁止读 result"的检查，否则会变成 Unknown 静默通过。
+
+**偏好排序的边界。** Unknown 目标的候选不能当"最差"处理。它排在可比较候选之后，同时 `complete: false` 表示"没有得出完整排序"。另外 `rank()` 的返回值里带 `ranking: 'preference-only'`，还提供 `authorizeFromRanking()` 直接抛错——用类型系统提醒调用方：排序不是授权。
+
+215 项测试通过，8 个 demo 全部可运行。
+
 ## 2026-10-27 补齐 Core 语法，两个示例全部可解析
 
 目标是把"示例文件解析不了"这个洞补上。最后两个示例都能进 AST 了。

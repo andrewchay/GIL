@@ -25,7 +25,31 @@ checker 与模拟器实际判定的范围：
 - `always` 状态不变量的当前观察检查，以及 `eventually` 的有限前缀观察。
 - 确定性后置赋值 `x' == expression` 与帧校验。
 
-明确未实现求值：量词、单位运算、knowledge 项的语义效力、prefer 的偏好排序、`-> T` 的返回值传递、failure/retryable/reversibility/compensate 的运行时行为、verification 的实际验证器调用。这些构造被解析后，checker 报 `UNSUPPORTED_EXPRESSION`，模拟器报 `UNSUPPORTED_PROFILE`——**不会静默当作已满足**。
+已实现求值（2026-10-31 补齐）：
+- **一阶量词**。域必须由宿主通过 `domains` 显式提供，Core 从不推断"所有 Order"是什么；缺域报 `UNBOUNDED_DOMAIN`，这是 ill-formed 而非 Unknown。空域按定义：`forall` 为真、`exists` 为假。域内元素逐个校验类型，任一元素为 Unknown 且无反例/正例时结果为 Unknown。
+- **knowledge 的语义效力**。`open` 名求值为 Unknown（`Open parameter X has no value`）；`ambiguous` 名被引用时报 `AMBIGUOUS_REFERENCE`，Core 从不选一个候选；`assert`/`assume`/`disputed` 提供定义但仍是断言，`disputed` 只改变归因。知识项不能递归引用自己（`UNSUPPORTED_PROFILE`）。
+- **偏好排序**（`src/preference.ts`）。只做单一数值目标 + `priority` 字典序。`priority` 越小越先比较，方向在比较时应用。目标为 Unknown 的候选不可比较：它排在可比较候选之后，且 `complete: false`——不声称它更差。
+- **动作返回值**。`-> T` 的 `result` 在 `requires` 通过后必须由调用方显式提供（`MISSING_RESULT`），类型按 `T` 校验。`requires` 阶段禁止读 `result`（`UNSUPPORTED_PROFILE`）。
+- **具名失败**。`requires` 不满足时，`declaredFailures` 列出动作声明的全部失败结果，模拟器**不选**其中一个——规约没说是"房间不可用"还是"支付被拒"。
+
+仍未实现求值：
+- **单位算术**。`24.hours`、`2.minutes` 进入 AST 后报 `UNSUPPORTED_PROFILE`。理由：没有一元化量纲模型时，把 `24.minutes` 当 `24` 比较会产出错误判定。`eventually within N.<unit>` 只记录界限，不参与任何判定（Core 没有时间推进）。
+- **`reversibility` / `compensate` 的执行**。二者只是声明，模拟成功不产生任何补偿能力。
+- **`retryable` 的重试语义**。`retryable` 作为声明透出，模拟器不实现重试，结果里没有尝试次数。
+- **`verification` 的验证器调用**。`verify X by modelCheck("m")` 仍只是声明。
+
+这些未实现的构造继续报 `UNSUPPORTED_EXPRESSION` / `UNSUPPORTED_PROFILE`，**不会静默当作已满足**。
+
+### 一个语法陷阱
+
+Core 的 `always` / `eventually` 只绑定紧随其后的 unary 表达式（见 EBNF 的 `temporalExpr`）。要包住整个比较必须加括号：
+
+```text
+always (phase == CLOSED);          // 正确：always 作用于比较
+always phase == CLOSED;            // 实际解析为 (always phase) == CLOSED
+```
+
+临床 workflow 的约束全部加了括号。GIL-RL 层则相反，`always` 绑定整个比较级表达式——两层语义不同，不要跨层套用。
 
 一个具体例子：`knowledge { assert open24: hotel.isOpen == true source "feed" as asserted; }` 解析后，`asserted` 只记录谁做了断言。它不使命题为真，也不进入约束求值。
 
@@ -89,6 +113,7 @@ NOT T=F，NOT F=T，NOT U=U。与未知值比较得到 Unknown，不进行宿主
 
 - 两个临床 GIL 独立解析、链接和静态检查。
 - 构造类型、knowledge、output、verification、量词、单位、prefer、返回值与补偿均能解析并进入 AST；未实现求值的构造必须报 `UNSUPPORTED_EXPRESSION` 或 `UNSUPPORTED_PROFILE`。
+- 量词、knowledge 效力、偏好排序与动作返回值有正反测试：空域定义、缺域报错、open 为 Unknown、ambiguous 拒绝、Unknown 候选不可比较、requires 失败不选失败原因。
 - `examples/酒店预订.gil` 整体可解析为 spec + interpretation + delegate 三项；`examples/机器人导航.gil` 可解析为 environment。
 - 单文档入口 `parse` 仍拒绝多文档文件，只有 `parseBundle` 接受。
 - 规范化及哈希对空白注释稳定，对 AST 内容变化敏感。

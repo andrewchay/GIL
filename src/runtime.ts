@@ -15,12 +15,31 @@ export interface Environment {
   localTypes?: Record<string, string>;
   ontologyAlias?: string;
   callStack?: string[];
+  /**
+   * 量词域，按类型名索引。域必须由宿主显式提供：Core 不会从当前状态或
+   * 本体声明里推断"所有 Order"是什么。缺域即无法判定，报 `UNBOUNDED_DOMAIN`。
+   */
+  domains?: Record<string, Value[]>;
 }
 export interface Check { name: string; value: boolean | Unknown; scope: 'state' | 'finite-prefix'; current?: boolean | Unknown }
 export interface MonitorResult { semantics: 'finite-prefix'; prefixLength: 1; goals: Check[]; constraints: Check[] }
 export type SimulationResult =
-  | { ok: true; state: State; checks: Check[]; authorization: 'not-implemented'; mode: 'core-simulation' }
-  | { ok: false; stage: 'pre-constraints' | 'requires' | 'assignment' | 'ensures' | 'constraints'; checks: Check[]; candidate?: State; authorization: 'not-implemented'; mode: 'core-simulation' };
+  | { ok: true; state: State; checks: Check[]; result?: Value; authorization: 'not-implemented'; mode: 'core-simulation' }
+  | {
+      ok: false;
+      stage: 'pre-constraints' | 'requires' | 'assignment' | 'ensures' | 'constraints';
+      checks: Check[];
+      candidate?: State;
+      /**
+       * 动作声明的具名失败结果。模拟器**不选**其中一个：requires 不满足只说明
+       * 动作无法执行，无法从规约推断是哪个业务原因。
+       */
+      declaredFailures?: string[];
+      /** `retryable` 是契约声明；本模拟器不实现重试语义。 */
+      retryable?: boolean;
+      authorization: 'not-implemented';
+      mode: 'core-simulation';
+    };
 
 export function unknown(reason: string): Unknown { return { kind: 'unknown', reason }; }
 export function isUnknown(value: unknown): value is Unknown {
@@ -119,6 +138,9 @@ function assertPure(expr: Expr): void {
   }
   if (expr.kind === 'binary') { assertPure(expr.left); assertPure(expr.right); }
   if (expr.kind === 'call') expr.args.forEach(assertPure);
+  if (expr.kind === 'bounded') assertPure(expr.arg);
+  if (expr.kind === 'quantifier') assertPure(expr.body);
+  if (expr.kind === 'quantity') return;
 }
 function resolveRelation(path: string[], linked: Linked, env: Environment): { ontology: Ontology; alias: string; name: string } {
   const alias = path.length === 2 ? path[0] : env.ontologyAlias;
@@ -156,6 +178,49 @@ function intResult(value: number): number {
   return value;
 }
 
+/** 表达式中是否引用了某个根名字。用于在错误的阶段拒绝 `result`。 */
+function referencesName(expr: Expr, name: string): boolean {
+  switch (expr.kind) {
+    case 'ref': return expr.path[0] === name;
+    case 'call': return expr.args.some(arg => referencesName(arg, name));
+    case 'unary': return referencesName(expr.arg, name);
+    case 'binary': return referencesName(expr.left, name) || referencesName(expr.right, name);
+    case 'bounded': return referencesName(expr.arg, name);
+    case 'quantifier': return referencesName(expr.body, name);
+    default: return false;
+  }
+}
+
+/** 量词的真值合成：全称遇反例即假，存在遇正例即真，否则未知优先于确定。 */
+function combine(quantifier: 'forall' | 'exists', values: (boolean | Unknown)[]): boolean | Unknown {
+  // 空域是定义而非约定：全称为真，存在为假。
+  if (quantifier === 'forall') {
+    if (values.some(value => value === false)) return false;
+    return values.find(value => isUnknown(value)) ?? true;
+  }
+  if (values.some(value => value === true)) return true;
+  return values.find(value => isUnknown(value)) ?? false;
+}
+
+/**
+ * 知识项作为值来源。它们不提升真值：
+ * `open` 缺值、`ambiguous` 没有单一候选、`disputed` 只记录争议。
+ */
+function knowledgeValue(name: string, linked: Linked, env: Environment): { found: true; value: Value } | { found: false } {
+  // 手工构造的 spec 可能没有 knowledge 章节；缺失即"没有知识项"，不是错误。
+  const item = (linked.spec.knowledge ?? []).find(entry => entry.name === name);
+  if (!item) return { found: false };
+  const marker = `knowledge:${name}`;
+  const stack = env.callStack ?? [];
+  if (stack.includes(marker)) fail('UNSUPPORTED_PROFILE', `Recursive knowledge definition ${name}`);
+  if (item.kind === 'open') return { found: true, value: unknown(`Open parameter ${name} has no value`) };
+  if (item.kind === 'ambiguous') {
+    fail('AMBIGUOUS_REFERENCE', `Ambiguity ${name} has ${item.candidates.length} candidates; Core never picks one`);
+  }
+  assertPure(item.expr);
+  return { found: true, value: evaluate(item.expr, linked, { ...env, callStack: [...stack, marker] }) };
+}
+
 /** Pure Core evaluation. Temporal operators cannot be evaluated as a current-state Boolean. */
 export function evaluate(expr: Expr, linked: Linked, env: Environment): Value {
   switch (expr.kind) {
@@ -176,9 +241,14 @@ export function evaluate(expr: Expr, linked: Linked, env: Environment): Value {
       } else {
         const scopes = [env.locals, env.params, env.inputs, env.state, env.context ?? context(linked)];
         const scope = scopes.find(s => s && own(s, root));
-        value = scope ? scope[root] : unknown(`Missing reference ${root}`);
         const binding = linked.spec.state.find(b => b.name === root) ?? linked.spec.input.find(b => b.name === root) ?? linked.spec.context.find(b => b.name === root);
-        if (binding && !(env.locals && own(env.locals, root)) && !(env.params && own(env.params, root))) validate(value, binding.type, linked);
+        if (scope) {
+          value = scope[root];
+          if (binding && !(env.locals && own(env.locals, root)) && !(env.params && own(env.params, root))) validate(value, binding.type, linked);
+        } else {
+          const known = knowledgeValue(root, linked, env);
+          value = known.found ? known.value : unknown(`Missing reference ${root}`);
+        }
       }
       for (const field of fields) {
         if (isUnknown(value)) return value;
@@ -208,6 +278,34 @@ export function evaluate(expr: Expr, linked: Linked, env: Environment): Value {
       validate(result, relation.type, linked, alias);
       return result;
     }
+    case 'quantifier': {
+      const evaluateAt = (index: number): boolean | Unknown => {
+        if (index === expr.bindings.length) return boolean(evaluate(expr.body, linked, env));
+        const binding = expr.bindings[index];
+        const domain = env.domains && own(env.domains, binding.type) ? env.domains[binding.type] : undefined;
+        // 没有显式域就无法判定；这不是"信息不足"，而是规约缺少可求值的域。
+        if (!domain) fail('UNBOUNDED_DOMAIN', `Quantifier over ${binding.type} requires an explicit domain`);
+        const previous = env.locals;
+        const locals: State = previous ? { ...previous } : {};
+        const restore = () => { env.locals = previous; };
+        const results: (boolean | Unknown)[] = [];
+        for (const element of domain) {
+          validate(element, binding.type, linked, env.ontologyAlias);
+          put(locals, binding.name, element);
+          env.locals = locals;
+          results.push(evaluateAt(index + 1));
+          // 短路：全称遇假、存在遇真即可收敛，剩余元素不再求值。
+          if (expr.quantifier === 'forall' && results.at(-1) === false) break;
+          if (expr.quantifier === 'exists' && results.at(-1) === true) break;
+        }
+        restore();
+        return combine(expr.quantifier, results);
+      };
+      return evaluateAt(0);
+    }
+    case 'quantity':
+      // 单位算术需要一元化的量纲模型；没有它就把 24.minutes 当 24，是错误判定。
+      return fail('UNSUPPORTED_PROFILE', `Unit quantity ${expr.value}.${expr.unit} has no dimension model`);
     case 'unary': {
       if (['always', 'eventually'].includes(expr.op)) fail('UNSUPPORTED_PROFILE', 'Use monitor for finite-prefix temporal claims');
       const value = evaluate(expr.arg, linked, env);
@@ -287,7 +385,8 @@ function stateConstraints(linked: Linked, env: Environment): Check[] {
 }
 
 /** Deterministic candidate construction, never a solver or an authorization decision. */
-export function simulate(linked: Linked, state: State, inputs: State, actionName: string, params: State = {}): SimulationResult {
+export function simulate(linked: Linked, state: State, inputs: State, actionName: string, params: State = {},
+  options: { result?: Value } = {}): SimulationResult {
   validateBindings(state, linked.spec.state, linked);
   validateBindings(inputs, linked.spec.input, linked);
   const action = linked.spec.actions.find(a => a.name === actionName);
@@ -295,10 +394,27 @@ export function simulate(linked: Linked, state: State, inputs: State, actionName
   validateBindings(params, action.params, linked);
   const localTypes: Record<string, string> = Object.create(null);
   for (const binding of action.params) localTypes[binding.name] = binding.type;
-  const env: Environment = { state, inputs, params, localTypes, context: context(linked) };
+  /*
+   * `result` 只在动作已经发生之后才有意义，所以它的校验放在 requires 之后：
+   * requires 不满足时动作根本没执行，不该要求调用方提供一个返回值。
+   */
+  if (!action.returns && options.result !== undefined) {
+    fail('UNEXPECTED_RESULT', `Action ${actionName} declares no return value`);
+  }
+  for (const expr of action.requires) {
+    if (referencesName(expr, 'result')) {
+      fail('UNSUPPORTED_PROFILE', `Action ${actionName}: requires cannot read result; only ensures may`);
+    }
+  }
+  const requiresEnv: Environment = { state, inputs, params, localTypes, context: context(linked) };
+  const env: Environment = requiresEnv;
   const meta = { authorization: 'not-implemented' as const, mode: 'core-simulation' as const };
+  const declaration = {
+    ...(action.failures?.length ? { declaredFailures: action.failures } : {}),
+    ...(action.retryable === undefined ? {} : { retryable: action.retryable }),
+  };
   const preConstraints = stateConstraints(linked, { state, inputs, context: env.context });
-  if (preConstraints.some(c => c.value !== true)) return { ok: false, stage: 'pre-constraints', checks: preConstraints, ...meta };
+  if (preConstraints.some(c => c.value !== true)) return { ok: false, stage: 'pre-constraints', checks: preConstraints, ...declaration, ...meta };
   // Validate the supported postcondition shape even if requires would block execution.
   const assignments = action.ensures.map(expr => {
     if (expr.kind !== 'binary' || expr.op !== '==' || expr.left.kind !== 'ref' || !expr.left.next || expr.left.path.length !== 1) fail('UNSUPPORTED_POSTCONDITION', 'Only next-state root == pure RHS assignments are supported');
@@ -308,8 +424,21 @@ export function simulate(linked: Linked, state: State, inputs: State, actionName
     return { name, expr, rhs: expr.right };
   });
   for (const name of action.writes) if (!linked.spec.state.some(b => b.name === name)) fail('FRAME_VIOLATION', `Undeclared writes target ${name}`);
-  const requires = action.requires.map((expr, i) => { assertPure(expr); return { name: `requires[${i}]`, value: boolean(evaluate(expr, linked, env)), scope: 'state' as const }; });
-  if (requires.some(c => c.value !== true)) return { ok: false, stage: 'requires', checks: requires, ...meta };
+  const requires = action.requires.map((expr, i) => { assertPure(expr); return { name: `requires[${i}]`, value: boolean(evaluate(expr, linked, requiresEnv)), scope: 'state' as const }; });
+  // requires 不满足＝动作无法执行；声明的 failures 只作候选列出，不作选择。
+  if (requires.some(c => c.value !== true)) return { ok: false, stage: 'requires', checks: requires, ...declaration, ...meta };
+  /*
+   * `-> T` 的返回值必须由调用方显式提供：它是"实现选择的决策变量"，模拟器
+   * 没有能力替实现决定。缺失即 MISSING_RESULT，不猜一个值让契约看起来成立。
+   */
+  if (action.returns && options.result === undefined) {
+    fail('MISSING_RESULT', `Action ${actionName} declares a return value; supply it explicitly`);
+  }
+  if (options.result !== undefined) {
+    validate(options.result, action.returns!, linked);
+    put(localTypes as unknown as State, 'result', action.returns!);
+    env.locals = { result: options.result };
+  }
   const values: State = {};
   const assignmentChecks: Check[] = [];
   for (const { name, rhs } of assignments) {
@@ -319,11 +448,12 @@ export function simulate(linked: Linked, state: State, inputs: State, actionName
     put(values, name, value);
     assignmentChecks.push({ name, value: isUnknown(value) ? value : true, scope: 'state' });
   }
-  if (assignmentChecks.some(c => c.value !== true)) return { ok: false, stage: 'assignment', checks: assignmentChecks, ...meta };
+  if (assignmentChecks.some(c => c.value !== true)) return { ok: false, stage: 'assignment', checks: assignmentChecks, ...declaration, ...meta };
   const candidate = structuredClone({ ...state, ...values });
   const ensures: Check[] = assignments.map(({ expr }, i) => ({ name: `ensures[${i}]`, value: boolean(evaluate(expr, linked, { ...env, nextState: candidate })), scope: 'state' }));
-  if (ensures.some(c => c.value !== true)) return { ok: false, stage: 'ensures', checks: ensures, candidate, ...meta };
+  if (ensures.some(c => c.value !== true)) return { ok: false, stage: 'ensures', checks: ensures, candidate, ...declaration, ...meta };
   const constraints = stateConstraints(linked, { state: candidate, inputs, context: env.context });
-  if (constraints.some(c => c.value !== true)) return { ok: false, stage: 'constraints', checks: constraints, candidate, ...meta };
-  return { ok: true, state: candidate, checks: [...requires, ...ensures, ...constraints], ...meta };
+  if (constraints.some(c => c.value !== true)) return { ok: false, stage: 'constraints', checks: constraints, candidate, ...declaration, ...meta };
+  return { ok: true, state: candidate, checks: [...requires, ...ensures, ...constraints],
+    ...(options.result === undefined ? {} : { result: options.result }), ...meta };
 }
