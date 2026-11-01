@@ -401,3 +401,10 @@ Core 实现至少应检查：
 - Assurance 可以提供关于 Core 声明的证据，但证据不反向改变命题真值。
 
 强化学习所需的观察、信念、初始分布、环境动力学、终止和奖励由 GIL-RL 扩展定义。
+
+
+## v0.2 候选修订关联
+
+Core 可选profile补充测量合同、主张类别与带原因的求值报告；不改变三值真值表或引入业务决策枚举。
+
+参见[候选语义合同](docs/gil-v0.2-semantic-contract.md)与[双场景验收](docs/gil-v0.2-dual-scenario-acceptance.md)。这些扩展尚未冻结或实现，不改变本文v0.1原型的符合性声明。

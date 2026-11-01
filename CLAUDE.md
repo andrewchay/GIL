@@ -48,6 +48,18 @@
 - 偏好排序的 Unknown 候选排在后面且 `complete:false`——不能把"取不到值"当"值很差不选"。
 - 本切片角色：协调员提交、CRA 复核、CTM 关闭；Agent 只检查建议受限分派。A01–A30 见 `docs/clinical-operations/monitoring-remediation/coverage.md`（29 已实现、1 部分、0 未实现）；未标"已实现"的条目不得视为通过。
 
+## v0.2 双场景候选规范（2026-11-01）
+- `docs/gil-v0.2-{cross-domain-design,semantic-contract,dual-scenario-acceptance}.md` 是用户授权的“规范＋双场景验收”，不改OptiMed/Brando，不升级v0.1运行时或哈希。
+- Core三值与知识/覆盖/新鲜度/审阅/权限分离。业务ALLOW、统计区间、能力档位均不等于True/Pass/Grant。
+- 同绑定未裁决冲突：Unknown+INPUT_CONFLICT+独立review；逻辑短路不删除相关review。Observed须有效且不被冲突悬置；ConfirmedAbsent还须Complete、闭合依据、成熟窗口与零命中。
+- X01–X16与F01–F17均是文档级设计验收，未执行自动测试；旧218测试通过不能证明新profile符合。
+
+## Agent 集成原型（2026-11-02）
+- `src/agent-sdk.ts`/`agent-http.ts`/`agent-semantics.ts`及`docs/agent-integration.md`：独立`gil-agent-contract-0.2-experimental`结构化合同子集，不升级v0.1，不宣称整个v0.2符合。
+- 模型只提候选；domain/action的精确claim与必需review来自host。HTTP只接受snapshotId，不接受客户端自报snapshot/actor，token映射仅本地模拟；任何演示token可读取合同，不可放真实数据。
+- 幂等binding含合同id；Unknown禁止换key重试/换快照。reconcile单飞；execute/verify/reconcile有时限。每次重验绑定原Grant，不能失效后静默换Grant。预算按尝试保守预留。
+- `npm run demo:agent`；`serve:agent`需要三个操作者提供的不同token；Python示例`examples/agent-client.py`仅标准库。进程重启丢失会话/幂等/预算，不能用于生产。
+
 ## 核心架构与文件结构
 
 依赖方向严格**由外层指向 Core**（Core 不得依赖接受事件、授权、长期记忆或验证结论来决定基本逻辑语义）：

@@ -1,5 +1,27 @@
 # GIL-language 项目调研与架构笔记
 
+## 2026-11-02 Agent SDK与HTTP离线闭环
+
+用户选择SDK＋HTTP＋双场景，真实模型/生产基础设施不在本轮。新增agent-semantics/sdk/http/server/demo和Python标准库客户端；docs/agent-integration.md说明接口与边界。profile为gil-agent-contract-0.2-experimental，v0.1不改。
+
+关键防线：模型不得提交权限/事实、删host必需review或换host精确claim；HTTP只接snapshotId，actor来自token映射。局部SDK主机本身受信，不把它暴露为模型工具。绑定含contract id，防跨合同幂等混用。Unknown副作用禁止换key重试/换快照。
+
+独立审查修复：锁原Grant避免重验静默换授权；verify/reconcile都有timeout；reconcile底层未结束即使等待超时也保留单飞锁；identifier拒冒号避免domain/action策略键碰撞。新回归覆盖以上问题。超时不取消外部能力，迟到结果不自动提交。
+
+验证265通过（原218＋新47），9 demo、check:clinical、parse:examples通过；Python实际调用loopback HTTP，两领域Succeeded且verified=true。凭据随机内存生成未写文件。HTTP为模拟token接口，任一token可读合同，无生产对象权限；进程重启丢失状态/预算/幂等，不用于真实执行或审计。v0.2并未全实现，仍缺测量口径对齐/时效政策/依赖图/真实因果验证等。
+
+
+## 2026-11-01 双场景驱动的v0.2候选规范
+
+用户澄清本轮不是解决OptiMed的问题，而是借OptiMed与brando-playbook-game-growth打磨GIL；选定“规范＋双场景验收”。三份交付文档位于docs/gil-v0.2-*.md，关联01–05和README，不改v0.1语法/运行时/hash，也不改业务项目。
+
+关键纠偏：OptiMed四态是业务决策，不是四值真值；Brando D档是能力/数据可达性，不是因果证明等级。不能凭局部探索断言整个业务仓库没有某项能力。
+
+新增合同：六类正交状态、测量口径与观察闭合、主张类别与区间类型、谱系独立性、版本影响传播、受限外部效果。X01–X16成对案例＋F01–F17固定文档夹具，均未自动执行。独立评审两轮修正：闭合缺失需Complete+零命中；Core不得读取批准/凭证改写truth；直接冲突明确Unknown+INPUT_CONFLICT；命中遇冲突优先UnableToDetermine；跨期可比需成熟且完整。
+
+验证：旧218测试全通过，Markdown引用/代码围栏/空白检查通过。项目记忆工具加载失败；跨目录Read越界，授权场景以只读Bash与explorer取证。工作区级.context无可读内容。当前Git已是标准.git且身份注入可提交，早期相关“无法提交”记录仅为历史。
+
+
 ## 2026-10-31 体检与一致性修复
 
 - 时序绑定选 B1。决定性证据：规范正文 `01-GIL-Core.md:303` 的示例不带括号，只有 EBNF 那一行按紧绑定写。带括号的写法新旧 AST 相同，所以临床摘要不变。改动前用临时副本重算摘要对照，逐字相同。

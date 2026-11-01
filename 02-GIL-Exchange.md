@@ -196,3 +196,10 @@ SemanticDiff {
 - 规约版本关系；
 - 目标、约束、假设和接地的结构化差异；
 - 无法判定时返回 `Unknown`。
+
+
+## v0.2 候选修订关联
+
+精确接受可针对测量映射、假设和审阅裁决；接受不证明命题或授予外部效果权限。
+
+参见[候选语义合同](docs/gil-v0.2-semantic-contract.md)与[双场景验收](docs/gil-v0.2-dual-scenario-acceptance.md)。这些扩展尚未冻结或实现，不改变本文v0.1原型的符合性声明。

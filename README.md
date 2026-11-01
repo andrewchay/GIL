@@ -19,6 +19,12 @@ GIL 不是通用编程语言，也不要求所有实现都使用同一种运行�
 5. **任何验证结论都只对特定目标、环境、覆盖范围和版本有效。**
 6. **核心保持小巧，复杂协作能力通过分层扩展。**
 
+## v0.2 候选修订：双场景压力测试
+
+基于临床运营与游戏增长场景，新增[设计依据](docs/gil-v0.2-cross-domain-design.md)、[候选语义合同](docs/gil-v0.2-semantic-contract.md)与[16组成对正反验收](docs/gil-v0.2-dual-scenario-acceptance.md)。重点是测量口径、观察覆盖、主张类别、独立性、审阅义务和受限效果。
+
+**这是一轮规范候选，不是运行时升级。** v0.1 语法、摘要 profile 和原型保持不变；新类型框不宣称可解析，双场景案例尚未自动执行。业务状态、知识状态、统计置信、接受与授权不得压成一个状态。
+
 ## 2. 文件导航
 
 | 文件 | 内容 |
@@ -106,6 +112,8 @@ ArtifactRef {
 
 ```sh
 npm test
+npm run demo:agent             # 离线SDK双场景：候选、澄清、接受、审阅、执行与回执
+# 本地HTTP服务器配置与Python客户端见 docs/agent-integration.md
 npm run check:clinical
 npm run demo:clinical
 npm run clarify:clinical       # 只提出问题，不自动回答
@@ -162,7 +170,7 @@ RL 层（`environment` 文档）与 Workspace 层（工件、来源引用、快�
 
 Core 语法现已覆盖构造类型（`Entity<T>`、`Option<T>`、`Set<T>`、联合与记录）、`output`/`knowledge`/`verification` 章节、一阶量词、单位字面量、`prefer` 偏好、动作返回值与补偿、词法表定义、多文档 bundle，以及 `delegate` 请求语法。GIL-RL 的环境语法已写入正式 EBNF。
 
-218 项自动测试通过。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
+265 项自动测试通过。新增[Agent SDK＋HTTP实验性闭环](docs/agent-integration.md)，模型使用离线接口，事实来自宿主快照，接受与Grant仍为过程内模拟；仅实现v0.2合同子集，不宣称完整符合性或生产授权。临床监查场景的 A01–A30 覆盖矩阵为 29 已实现、1 部分、0 未实现——**这是该场景的验收覆盖，不代表 GIL 全部六层已完成**。
 
 **模拟 CLOSED 不代表临床发现获准关闭。** 真实身份、实际 Attestation、持久化审计和真实系统写入尚未实现；Grant/Approval 仅为模拟实现。A01–A30 是后续外层验收，不以 Core 单测替代。Int 使用安全整数；Decimal 为有限精度 Number，不用于精确金额或临床计算。
 
