@@ -67,6 +67,13 @@
 - `summarize` 只给计数与各自定义明确的比例，不合成"对齐度总分"。`groundTruth.coveredShare` 低时 L3 不成立。
 - 演示：`npm run demo:decision-log [path]`，默认内存 sink，不落盘。`.gil-logs/` 已 gitignore。
 
+## 盲测与一致性（2026-11-03）
+- `src/agreement.ts`：Fleiss' κ（多人）、Cohen's κ（两人）、确定性 bootstrap 区间、Landis-Koch 分档。输入必须是等长无缺失标注矩阵。
+- `src/blind-bench.ts`：案例导入强制 `disclosure.sanitized === true`，否则 `NOT_SANITIZED`；系统判定由 `evaluateSnapshot` 现算，不接受手填；盲测包不含任何判定词，答案键单独落盘。
+- CLI：`bench:pack cases.json --out DIR` 产出盲测案例.md + 三份回答表 + 答案键.json；`bench:analyze cases.json s1.csv s2.csv s3.csv`（不需要答案键，判定重算）。
+- κ 按 truth 与 observation 分开算，不合并。区间宽于 0.4 或跨越 0.6 时报告自动告警；<30 例告警。
+- `differsFromSystem` 只是分歧位置，不是错误率。`bench/` 含真实业务案例，已 gitignore。
+
 ## 核心架构与文件结构
 
 依赖方向严格**由外层指向 Core**（Core 不得依赖接受事件、授权、长期记忆或验证结论来决定基本逻辑语义）：

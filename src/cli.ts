@@ -7,6 +7,9 @@ import { workspaceDemo } from './workspace-demo.ts';
 import { evaluationDemo } from './evaluation-demo.ts';
 import { agentDemo } from './agent-demo.ts';
 import { decisionLogDemo } from './decision-log-demo.ts';
+import { blindBenchDemo } from './blind-bench-demo.ts';
+import { importCases, renderBlindPack, renderResponseSheet, renderAnswerKey, parseResponseSheet, analyze } from './blind-bench.ts';
+import { readFileSync as read, writeFileSync as write, mkdirSync } from 'node:fs';
 import { parse, parseBundle, parseInterpretation } from './parser.ts';
 import { sourceArtifact } from './interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from './exchange.ts';
@@ -34,7 +37,32 @@ function program(specPath: string, ontologyPaths: string[]) {
 }
 try {
   const [command, ...args] = process.argv.slice(2);
-  if (command === 'demo-decision-log' && args.length <= 1) {
+  if (command === 'demo-bench' && args.length === 0) {
+    const result = blindBenchDemo();
+    emit(result);
+    if (!result.ok) process.exitCode = 1;
+  } else if (command === 'bench:pack' && args.length === 3 && args[1] === '--out') {
+    // 只有已声明脱敏的案例才会生成盲测包；答案键单独落盘，绝不混入标注材料。
+    const cases = importCases(JSON.parse(read(args[0], 'utf8')));
+    mkdirSync(args[2], { recursive: true });
+    write(`${args[2]}/盲测案例.md`, renderBlindPack(cases), 'utf8');
+    write(`${args[2]}/答案键.json`, renderAnswerKey(cases), 'utf8');
+    const sheets: string[] = [];
+    for (let index = 1; index <= 3; index++) {
+      const name = `${args[2]}/回答表-${index}.csv`;
+      write(name, renderResponseSheet(cases), 'utf8');
+      sheets.push(name);
+    }
+    emit({ ok: true, mode: 'blind-bench-pack', cases: cases.length,
+      warning: '答案键.json 绝不可发给标注者；请连同 docs/annotation/术语表.md 一并交付',
+      files: { blind: `${args[2]}/盲测案例.md`, answerKey: `${args[2]}/答案键.json`, responseSheets: sheets } });
+  } else if (command === 'bench:analyze' && args.length === 4) {
+    // 系统判定从案例重算，不需要答案键作为输入；答案键只用于人工核对与泄漏审计。
+    const cases = importCases(JSON.parse(read(args[0], 'utf8')));
+    const sheets = args.slice(1).map((path, index) =>
+      parseResponseSheet(`标注者-${index + 1}`, read(path, 'utf8'), cases));
+    emit({ ok: true, mode: 'blind-bench-analysis', ...analyze(cases, sheets) });
+  } else if (command === 'demo-decision-log' && args.length <= 1) {
     const result = await decisionLogDemo(args[0] === undefined ? {} : { path: args[0] });
     emit(result);
     if (!result.ok) process.exitCode = 1;

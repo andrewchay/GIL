@@ -11,6 +11,7 @@
     "demo:agent": "node src/cli.ts demo-agent",
     "serve:agent": "node src/agent-server.ts",
     "demo:decision-log": "node src/cli.ts demo-decision-log",
+    "demo:bench": "node src/cli.ts demo-bench",
     "demo:workspace": "node src/cli.ts demo-workspace",
     "demo:evaluation": "node src/cli.ts demo-evaluation",
     "demo:rl": "node src/cli.ts demo-rl",

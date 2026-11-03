@@ -60,6 +60,7 @@ npm run parse:examples
 | `npm run demo:workspace` | 工件、来源、快照与记忆生命周期 |
 | `npm run demo:evaluation` | 量词、知识项、偏好排序与动作返回值 |
 | `npm run demo:decision-log` | 追加式决策日志与 L1 自洽性比率 |
+| `npm run demo:bench` | 盲测管线：生成标注包、Fleiss κ、bootstrap 区间 |
 
 查看规范化 AST 与内容摘要：
 
@@ -157,7 +158,7 @@ ArtifactRef {
 - [授权与审计](docs/delegation-profile.md) · [凭证与恢复](docs/assurance-profile.md)
 - [期限、阻断与时间](docs/phase5-profile.md) · [RL](docs/rl-profile.md) · [Workspace](docs/workspace-profile.md)
 - [临床场景](docs/clinical-operations/monitoring-remediation/scenario.md) · [验收案例](docs/clinical-operations/monitoring-remediation/acceptance.md) · [覆盖矩阵](docs/clinical-operations/monitoring-remediation/coverage.md)
-- [术语](docs/terminology.md) · [决策日志与对齐度量](docs/decision-log.md) · [语法草案](grammar/GIL-Core.ebnf)
+- [术语](docs/terminology.md) · [决策日志与对齐度量](docs/decision-log.md) · [盲测操作手册](docs/annotation/README.md) · [语法草案](grammar/GIL-Core.ebnf)
 - [酒店示例](examples/酒店预订.gil) · [机器人示例](examples/机器人导航.gil)
 
 `src/` 保存实现；`test/` 保存 Node 内置测试；`conformance/` 保存合成夹具；`docs/` 保存实现边界与候选规范；`examples/` 保存语言示例和跨语言客户端。详细规范当前主要使用中文。
