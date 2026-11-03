@@ -1,0 +1,10 @@
+// 教程示例：最小本体——一个概念，一个纯关系。
+// 概念必须有且仅有一个 identity 字段；relation 必须带函数体。
+ontology "demo/core" version "1" {
+  concept Invoice {
+    identity invoiceId: Text;
+    amount: Int;
+    paid: Bool;
+  }
+  relation payable(i: Invoice): Bool = i.amount > 0;
+}

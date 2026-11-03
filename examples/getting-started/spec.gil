@@ -1,0 +1,22 @@
+// 教程示例：最小规约——目标、硬约束与一个动作契约。
+spec Demo version "1" {
+  use ontology "demo/core@1" as D;
+
+  input { invoice: D.Invoice; }
+  state { approved: Bool = false; }
+
+  goals {
+    achieve done: eventually approved;          // 目标：最终达成
+  }
+
+  constraints {
+    require nonNegative: always (invoice.amount >= 0);   // 硬约束：永远不得违反
+  }
+
+  action {
+    action approve(i: D.Invoice)
+      requires D.payable(i)          // 前置条件：alias 限定的纯关系调用
+      writes approved              // 帧条件：只允许写这个状态
+      ensures approved' == true;   // 后置条件：根状态 prime 赋值
+  }
+}

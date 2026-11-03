@@ -1,16 +1,16 @@
-# Agent 合同闭环实施
+# 采用材料 + 真实模型接入
 
-用户选择：SDK＋HTTP＋双场景闭环；模型使用可替换接口与离线夹具，不调用外部模型，不接生产业务系统。
+用户方向：先补采用材料（外部开发者从零到第一个合同的上手路径），再接真实大模型。
+模型接入约束：OpenAI 兼容 chat/completions 协议（覆盖 OpenAI/GLM/DeepSeek/本地 vLLM），env 配置，不在代码或文档中写任何密钥；离线测试与夹具全部保留。
 
-- [x] 探索现有实现；确认临床 Gate 不直接作为通用执行器。
-- [x] 用户确认范围。
-- [x] v0.2 核心语义子集：闭合缺失、冲突、主张类别、区间类型、来源根。
-- [x] SDK：模型候选、严格验证、澄清、精确接受、独立批准、受限效果与预算。
-- [x] 执行适配器：请求绑定、回执验证、幂等、超时未知与核对。
-- [x] 本地 HTTP 协议与跨语言客户端示例。
-- [x] 临床/增长双场景离线演示及正反测试。
-- [x] 独立审查、回归、文档与符合性范围说明。
+- [x] 确认范围与顺序（采用材料 → 真实模型）
+- [ ] `src/agent-model-openai.ts`：OpenAI 兼容 ModelProvider（严格 JSON 解析、超时、密钥不泄漏、仅 https/loopback）
+- [ ] 假 OpenAI 服务器测试：happy path / fence 剥离 / 401 / 非 JSON / 超时 / 配置校验
+- [ ] HTTP `/v1/proposals/live` 路由 + `agent-server` env 装配 + Python live 客户端
+- [ ] `docs/agent-integration.md` 增补 live 模型章节（成本、失败语义）
+- [ ] `examples/getting-started/` 三件套，check/simulate/负例命令逐一实测
+- [ ] `docs/getting-started.md` 上手指南（三条采用路径 + 五个教程 + 误用清单 + 上线检查单）
+- [ ] README 双语链接、CLAUDE.md、.context 收尾
+- [ ] 全量回归 + 分两次提交 + 推送
 
-保留既有未提交的 v0.2 规范文档。不得宣称真实身份、数据库持久化、完整GIL编译器或生产授权已实现。
-
-完成：2026-11-02。265测试通过（旧218＋新增47）；9个demo、临床检查、示例解析均通过；Python经本地HTTP跑通临床/增长。独立审查发现的问题已修复并加回归。未commit/push。
+红线：不读取或复用任何本地文件中的既有 API key；演示 token 与模型 key 一律由操作者 env 提供；live 调用的拒绝路径（MODEL_CONTRACT_REJECTED / EFFECT_NOT_GRANTED）是特性，不是故障。

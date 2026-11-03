@@ -35,7 +35,7 @@ GIL is not a general-purpose programming language. It does not replace an agent 
 
 ## Quick start
 
-Requires **Node.js >=24**. Node executes the TypeScript source using native type stripping. There are no third-party runtime dependencies; `npm install` is unnecessary. Native execution is not a `tsc` type check.
+New here? Start with the [hands-on guide](docs/getting-started.md) — three adoption paths, five tutorials, and an explicit pre-production checklist. Requires **Node.js >=24**. Node executes the TypeScript source using native type stripping. There are no third-party runtime dependencies; `npm install` is unnecessary. Native execution is not a `tsc` type check.
 
 ```sh
 npm test
@@ -44,7 +44,7 @@ npm run check:clinical
 npm run parse:examples
 ```
 
-The current test baseline is **265 passing tests**. This validates tested implementations and synthetic fixtures, not production security, clinical approval, or full specification conformance.
+The current test baseline is **304 passing tests** (run `npm test` for the live count). This validates tested implementations and synthetic fixtures, not production security, clinical approval, or full specification conformance.
 
 ### Other demos
 
@@ -154,7 +154,7 @@ The clinical A01–A30 matrix records **29 implemented cases and 1 partial case*
 
 ## Documentation and repository map
 
-- [Core implementation profile](docs/core-profile.md) · [Interpretation and clarification](docs/interpretation-profile.md)
+- [Hands-on guide](docs/getting-started.md) · [Core implementation profile](docs/core-profile.md) · [Interpretation and clarification](docs/interpretation-profile.md)
 - [Delegation and audit](docs/delegation-profile.md) · [Attestations and recovery](docs/assurance-profile.md)
 - [Deadlines, blockers, and time](docs/phase5-profile.md) · [RL](docs/rl-profile.md) · [Workspace](docs/workspace-profile.md)
 - [Clinical scenario](docs/clinical-operations/monitoring-remediation/scenario.md) · [Acceptance cases](docs/clinical-operations/monitoring-remediation/acceptance.md) · [Coverage matrix](docs/clinical-operations/monitoring-remediation/coverage.md)

@@ -1,0 +1,9 @@
+{
+  "initialState": {},
+  "inputs": {
+    "invoice": { "invoiceId": "INV-1", "amount": 100, "paid": false }
+  },
+  "steps": [
+    { "action": "approve", "params": { "i": { "invoiceId": "INV-1", "amount": 100, "paid": false } } }
+  ]
+}

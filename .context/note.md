@@ -1,5 +1,16 @@
 # GIL-language 项目调研与架构笔记
 
+## 2026-11-03 采用材料与真实模型
+
+用户拍板"完善采用材料，然后接真实模型"。模型接入选 OpenAI 兼容协议而非某家 SDK：一份实现覆盖 OpenAI/GLM/DeepSeek/本地 vLLM，且仓库保持零依赖（fetch + AbortSignal.timeout 原生）。
+
+安全边界没有松动：provider 提示词携带宿主固定的 claimContracts/actionReviews 并要求回显——这不是泄密（校验规则本来就不是秘密），而是让 live demo 能走通；模型若不回显，create() 的哈希比对照样拒绝。HTTP /v1/proposals/live 的 body 不接受 draft，客户端不能替模型写合同。key 只进请求头；测试断言错误消息不含 key。
+
+踩坑：教程 spec 里 relation 写了裸名单段调用 payable(i)，checker 报 UNRESOLVED_RELATION——规范惯例是 alias 限定两段调用（C.scopeMatches），runtime 的 ontologyAlias 只在 ontology 文档内部生效。这不是 bug，改教程。第二个坑：测试里 await assert.rejects 才能捕获 async 函数内 hashValue 的同步抛出，assert.throws 会漏掉并留下 unhandledRejection。
+
+写 getting-started 前把三个教程命令逐一实测（check/simulate/负例），教程里的每条输出都是真实运行结果。README 的测试数两轮没更新（265→278→295→304 都没跟上），这次改成"当前 304 项（以 npm test 为准）"并接受教训：硬编码计数必然过期。
+
+
 ## 2026-11-02 Agent SDK与HTTP离线闭环
 
 用户选择SDK＋HTTP＋双场景，真实模型/生产基础设施不在本轮。新增agent-semantics/sdk/http/server/demo和Python标准库客户端；docs/agent-integration.md说明接口与边界。profile为gil-agent-contract-0.2-experimental，v0.1不改。

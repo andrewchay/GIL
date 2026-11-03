@@ -74,6 +74,12 @@
 - κ 按 truth 与 observation 分开算，不合并。区间宽于 0.4 或跨越 0.6 时报告自动告警；<30 例告警。
 - `differsFromSystem` 只是分歧位置，不是错误率。`bench/` 含真实业务案例，已 gitignore。
 
+## 采用材料与真实模型（2026-11-03）
+- `src/agent-model-openai.ts`：OpenAI 兼容 ModelProvider；非 loopback 强制 https；key 只进请求头，错误消息不得含 key；v1 不重试。提示词含宿主固定的 claimContracts/actionReviews，要求模型回显。
+- HTTP `/v1/proposals/live`：body 只有 instruction/domain/snapshotId（不能带 draft）；未配模型 501，上游故障 502，合同拒绝 422。`agent-server.ts` 检测 GIL_MODEL_BASE_URL/API_KEY/ID 三变量启用。
+- `docs/getting-started.md` 是外部开发者入口：三条采用路径、五教程（含 examples/getting-started 三件套，已实测 check/simulate/负例）、上线检查单、误用清单。
+- 教程 relation 调用必须带 alias（`D.payable(i)`）——spec 作用域没有裸名单段解析，这是规范惯例不是 bug。
+
 ## 核心架构与文件结构
 
 依赖方向严格**由外层指向 Core**（Core 不得依赖接受事件、授权、长期记忆或验证结论来决定基本逻辑语义）：
