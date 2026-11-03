@@ -60,6 +60,13 @@
 - 幂等binding含合同id；Unknown禁止换key重试/换快照。reconcile单飞；execute/verify/reconcile有时限。每次重验绑定原Grant，不能失效后静默换Grant。预算按尝试保守预留。
 - `npm run demo:agent`；`serve:agent`需要三个操作者提供的不同token；Python示例`examples/agent-client.py`仅标准库。进程重启丢失会话/幂等/预算，不能用于生产。
 
+## 对齐度量（2026-11-03）
+- `src/decision-log.ts`：追加式 JSONL 决策日志，profile `gil-decision-log-0.1`；每行带内容哈希与单调 sequence，读取即重算，篡改报 `LOG_TAMPERED`。
+- ground truth 是独立追加事件，纠错必须显式 `supersedes`，不改写原判定。`source` 必须分来源统计。
+- L1 重复率只按 `contractHash+snapshotHash` 分组、只比 `truth+observation+issues+reviewRequired`；`outcome` 刻意排除，否则重试成功会被误报为语义漂移。
+- `summarize` 只给计数与各自定义明确的比例，不合成"对齐度总分"。`groundTruth.coveredShare` 低时 L3 不成立。
+- 演示：`npm run demo:decision-log [path]`，默认内存 sink，不落盘。`.gil-logs/` 已 gitignore。
+
 ## 核心架构与文件结构
 
 依赖方向严格**由外层指向 Core**（Core 不得依赖接受事件、授权、长期记忆或验证结论来决定基本逻辑语义）：

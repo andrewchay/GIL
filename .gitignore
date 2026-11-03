@@ -18,3 +18,6 @@ npm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# 决策日志运行时输出（非仓库内容）
+.gil-logs/

@@ -6,6 +6,7 @@ import { rlDemo } from './rl-demo.ts';
 import { workspaceDemo } from './workspace-demo.ts';
 import { evaluationDemo } from './evaluation-demo.ts';
 import { agentDemo } from './agent-demo.ts';
+import { decisionLogDemo } from './decision-log-demo.ts';
 import { parse, parseBundle, parseInterpretation } from './parser.ts';
 import { sourceArtifact } from './interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from './exchange.ts';
@@ -33,7 +34,11 @@ function program(specPath: string, ontologyPaths: string[]) {
 }
 try {
   const [command, ...args] = process.argv.slice(2);
-  if (command === 'demo-agent' && args.length === 0) {
+  if (command === 'demo-decision-log' && args.length <= 1) {
+    const result = await decisionLogDemo(args[0] === undefined ? {} : { path: args[0] });
+    emit(result);
+    if (!result.ok) process.exitCode = 1;
+  } else if (command === 'demo-agent' && args.length === 0) {
     const result = await agentDemo();
     emit(result);
     if (!result.ok) process.exitCode = 1;

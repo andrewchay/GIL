@@ -59,6 +59,7 @@ The current test baseline is **265 passing tests**. This validates tested implem
 | `npm run demo:rl` | Seeded replay, termination states, and reward breakdown |
 | `npm run demo:workspace` | Artifacts, sources, snapshots, and memory lifecycle |
 | `npm run demo:evaluation` | Quantifiers, knowledge items, preference ranking, and action results |
+| `npm run demo:decision-log` | Append-only decision log and L1 determinism rate |
 
 Inspect a canonical AST and its content hash:
 
@@ -156,7 +157,7 @@ The clinical A01–A30 matrix records **29 implemented cases and 1 partial case*
 - [Delegation and audit](docs/delegation-profile.md) · [Attestations and recovery](docs/assurance-profile.md)
 - [Deadlines, blockers, and time](docs/phase5-profile.md) · [RL](docs/rl-profile.md) · [Workspace](docs/workspace-profile.md)
 - [Clinical scenario](docs/clinical-operations/monitoring-remediation/scenario.md) · [Acceptance cases](docs/clinical-operations/monitoring-remediation/acceptance.md) · [Coverage matrix](docs/clinical-operations/monitoring-remediation/coverage.md)
-- [Terminology](docs/terminology.md) · [Grammar draft](grammar/GIL-Core.ebnf)
+- [Terminology](docs/terminology.md) · [Decision log and alignment metrics](docs/decision-log.md) · [Grammar draft](grammar/GIL-Core.ebnf)
 - [Hotel example](examples/酒店预订.gil) · [Robot example](examples/机器人导航.gil)
 
 `src/` contains implementations; `test/` contains Node built-in tests; `conformance/` contains synthetic fixtures; `docs/` contains profiles and candidate specifications; `examples/` contains language examples and a cross-language client. Detailed specifications are currently primarily in Chinese.
