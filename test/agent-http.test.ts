@@ -49,3 +49,34 @@ test('HTTP rejects oversized/malformed JSON and no public snapshot replacement e
     assert.equal((await request(base,'/v1/snapshots','test-agent',{})).status,404);
   }finally{await new Promise<void>(r=>server.close(()=>r()));}
 });
+
+test('live model route: configured provider is used, absent provider returns 501', async () => {
+  const f = scenario('clinical');
+  const base = { tokens: { 'test-agent': 'agent', 'test-owner': 'owner', 'test-reviewer': 'reviewer' },
+    snapshots: { clinical: f.snapshot } };
+  // 1) 未配置 → 501 MODEL_NOT_CONFIGURED
+  const plain = createAgentHTTP({ service: new AgentService(demoHost()), ...base });
+  await new Promise<void>(r => plain.listen(0, '127.0.0.1', r));
+  const a = plain.address(); const base1 = `http://127.0.0.1:${typeof a === 'object' ? a.port : 0}`;
+  try {
+    const out = await request(base1, '/v1/proposals/live', 'test-agent',
+      { instruction: 'x', domain: 'clinical', snapshotId: 'clinical' });
+    assert.equal(out.status, 501);
+    assert.equal(out.data.code, 'MODEL_NOT_CONFIGURED');
+  } finally { await new Promise<void>(r => plain.close(() => r())); }
+  // 2) 已配置（stub provider）→ 201，且模型收不到事实/身份
+  let seen: unknown;
+  const live = { async propose(input: unknown) { seen = input; return f.draft; } };
+  const withLive = createAgentHTTP({ service: new AgentService(demoHost()), ...base, liveModel: live });
+  await new Promise<void>(r => withLive.listen(0, '127.0.0.1', r));
+  const b = withLive.address(); const base2 = `http://127.0.0.1:${typeof b === 'object' ? b.port : 0}`;
+  try {
+    const out = await request(base2, '/v1/proposals/live', 'test-agent',
+      { instruction: 'prepare the internal review', domain: 'clinical', snapshotId: 'clinical' });
+    assert.equal(out.status, 201);
+    assert.equal(out.data.modelMode, 'live-openai-compatible');
+    assert.deepEqual(Object.keys(seen as object), ['instruction', 'domain', 'actions']);
+    assert.deepEqual((seen as { actions: string[] }).actions, ['prepareReport']);
+    assert.equal(out.data.view.questions.length, 1, 'recipient null in draft raises clarification');
+  } finally { await new Promise<void>(r => withLive.close(() => r())); }
+});

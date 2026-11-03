@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { AgentService, FixtureModel } from './agent-sdk.ts';
+import type { ModelProvider } from './agent-sdk.ts';
 import { hashValue } from './interpretation.ts';
 import { GilError } from './ast.ts';
 
@@ -11,6 +12,8 @@ export interface HTTPOptions {
   tokens: Record<string, string>;
   /** Host-ingested snapshots; clients/models cannot self-report execution facts. */
   snapshots: Record<string, unknown>;
+  /** Optional live model for POST /v1/proposals/live; absent means the route returns 501. */
+  liveModel?: ModelProvider;
 }
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (!req.headers['content-type']?.startsWith('application/json')) throw new GilError('INVALID_REQUEST', 'JSON content type required');
@@ -55,6 +58,15 @@ export function createAgentHTTP(options: HTTPOptions) {
       if (req.method==='GET' && match && !match[2]) return send(200,options.service.get(match[1]));
       if (req.method!=='POST') return send(404,{ok:false,code:'NOT_FOUND'});
       const r = await body(req);
+      if (req.url==='/v1/proposals/live') {
+        if (!options.liveModel) throw new GilError('MODEL_NOT_CONFIGURED',
+          'Set GIL_MODEL_BASE_URL, GIL_MODEL_API_KEY and GIL_MODEL_ID to enable the live model');
+        exact(r,['instruction','domain','snapshotId']);
+        const snapshotId = string(r.snapshotId);
+        if (!Object.hasOwn(snapshots, snapshotId)) throw new GilError('INVALID_REQUEST','Unknown host snapshot');
+        const view = await options.service.propose(actor,string(r.instruction),snapshots[snapshotId],string(r.domain),options.liveModel);
+        return send(201,{ modelMode:'live-openai-compatible', view });
+      }
       if (req.url==='/v1/proposals') {
         exact(r,['instruction','domain','draft','snapshotId']);
         const snapshotId = string(r.snapshotId);
@@ -75,7 +87,9 @@ export function createAgentHTTP(options: HTTPOptions) {
       send(200,result);
     } catch(error) {
       const code=error instanceof GilError ? error.code : 'INTERNAL_ERROR';
-      const status=code==='AUTH_REQUIRED'?401:code==='NOT_FOUND'?404:code==='BODY_TOO_LARGE'?413:400;
+      const status=code==='AUTH_REQUIRED'?401:code==='NOT_FOUND'?404:code==='BODY_TOO_LARGE'?413:
+        code==='MODEL_NOT_CONFIGURED'?501:code==='MODEL_UNAVAILABLE'||code==='MODEL_RESPONSE_INVALID'?502:
+        code==='MODEL_CONTRACT_REJECTED'?422:400;
       send(status,{ok:false,code,message:error instanceof GilError?error.message:'Unexpected internal error'});
     }
   });

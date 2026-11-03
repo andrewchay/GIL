@@ -3,6 +3,8 @@
 状态：离线、过程内、双场景原型。Profile：`gil-agent-contract-0.2-experimental`。
 不调用真实大模型，不执行临床动作、投放、发布或生产数据库写入。
 
+第一次集成建议先读[上手指南](getting-started.md)。本页是 SDK 与 HTTP 的完整参考。
+
 ## 1. 快速运行
 
 要求 Node.js >=24，无第三方依赖。
@@ -30,6 +32,42 @@ python3 examples/agent-client.py
 ```
 
 监听地址仅127.0.0.1，默认端口8787，PORT可覆盖。Python客户端仅用标准库；演示自动使用三种身份，是合成测试，不是实际人工审批。
+
+## 1b. 接真实模型（OpenAI 兼容协议）
+
+服务器默认用离线夹具。设置三个环境变量即切换为真实模型（OpenAI 兼容
+`/chat/completions` 协议，覆盖 OpenAI、智谱 GLM、DeepSeek、本地 vLLM/Ollama 等）：
+
+```sh
+export GIL_MODEL_BASE_URL='https://api.openai.com/v1'   # 或其他兼容端点
+export GIL_MODEL_API_KEY='<operator-provided-key>'
+export GIL_MODEL_ID='gpt-4o-mini'                        # 或 glm-4-flash 等
+export GIL_MODEL_TIMEOUT_MS='30000'                      # 可选
+npm run serve:agent                                      # 启动日志会显示 mode=...+live-model
+```
+
+启用后新增路由：
+
+| 方法/路径 | JSON 请求 | 说明 |
+|---|---|---|
+| POST `/v1/proposals/live` | instruction, domain, snapshotId | 模型现场提出候选；body 不接受 draft |
+
+关键语义：
+
+- **模型收不到事实、身份、Grant 或能力对象**。`propose` 输入只有
+  instruction、domain、可用 action 名，以及宿主固定的主张合同与必需审阅
+  （作为提示词约束，要求模型回显）。
+- **被拒是特性**：模型若替换 `claim`、删必需审阅，`create` 报
+  `MODEL_CONTRACT_REJECTED`（HTTP 422）；若提出越界的
+  recipient/destination/fields，执行时报 `EFFECT_NOT_GRANTED`。
+  `examples/agent-client-live.py` 会把拒绝原样打印出来——先跑一次合规指令，
+  再跑一次越界指令，观察两行的差别。
+- 错误码：`MODEL_UNAVAILABLE`（网络/超时/HTTP 错误，502）、
+  `MODEL_RESPONSE_INVALID`（返回体解析不出 JSON，502）、
+  `MODEL_NOT_CONFIGURED`（服务器未配模型，501）。v1 不自动重试。
+- 成本：每次 proposal 恰好一次 chat completion；可用
+  `GIL_MODEL_TIMEOUT_MS` 控制挂起，`temperature` 固定为 0。
+- 密钥只进请求头，不进日志与错误消息；`.env` 类文件不要提交。
 
 ## 2. SDK入口
 
