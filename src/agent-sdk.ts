@@ -2,9 +2,23 @@ import { randomUUID } from 'node:crypto';
 import { hashValue } from './interpretation.ts';
 import { fail, freeze } from './artifact.ts';
 import { evaluateSnapshot, validateClaim, validateSnapshot } from './agent-semantics.ts';
-import type { Claim as AgentClaim, Snapshot as AgentSnapshot } from './agent-semantics.ts';
+import type { Claim as AgentClaim, Snapshot as AgentSnapshot, Truth, ObservationState } from './agent-semantics.ts';
+import { DecisionLog, fieldsFromReport, verdictIdentity } from './decision-log.ts';
+import type { LogSink, Outcome } from './decision-log.ts';
 
-export const AGENT_PROFILE = 'gil-agent-contract-0.2-experimental';
+export const AGENT_PROFILE = 'gil-agent-contract-0.3-experimental';
+
+/**
+ * 事件内嵌的判定结果：审计链自包含——不依赖外部日志也能读出"当时判了什么"。
+ * verdictHash 与 decision-log 的判定身份同口径（verdictIdentity），第三方可对账。
+ */
+export interface VerdictInfo {
+  verdictHash: string;
+  truth: Truth;
+  observation: ObservationState;
+  issues: readonly string[];
+  reviewRequired: boolean;
+}
 export interface Draft {
   domain: string; goal: string; action: string; purpose: string;
   fields: string[]; recipient: string | null; destination: string;
@@ -39,12 +53,15 @@ export interface HostConfig {
   actionReviews: Record<string, string[]>;
   /** Exact domain/action claim policy, controlled by host rather than model. */
   actionClaims: Record<string, AgentClaim>;
+  /** Optional audit sink. When set, create-time verdicts and settled outcomes are appended; IO failure fails closed. */
+  decisionLog?: LogSink;
 }
+interface VerdictEvent { verdict?: VerdictInfo; decisionId?: string }
 interface Entry {
   id: string; draft: Draft; snapshot: AgentSnapshot; proposer: string; version: number;
   acceptance?: { by: string; binding: string };
   approvals: Record<string, { by: string; binding: string }>;
-  events: { type: string; actor: string; binding: string }[];
+  events: ({ type: string; actor: string; binding: string } & VerdictEvent)[];
   busy: boolean;
 }
 interface Attempt {
@@ -92,6 +109,7 @@ export class AgentService {
   private revoked = new Set<string>();
   private lastTime = -Infinity;
   private config: HostConfig;
+  private decisionLog: DecisionLog | null;
   constructor(config: HostConfig) {
     hashValue({ principals: config.principals, grants: config.grants });
     const principals = structuredClone(config.principals), grants = structuredClone(config.grants);
@@ -114,6 +132,7 @@ export class AgentService {
     }
     this.config = { ...config, principals: freeze(principals), grants: freeze(grants), adapters: { ...config.adapters },
       actionReviews: freeze(structuredClone(config.actionReviews)), actionClaims: freeze(structuredClone(config.actionClaims)), timeoutMs };
+    this.decisionLog = config.decisionLog ? new DecisionLog(config.decisionLog) : null;
   }
   private clock(): number {
     const time = this.config.now();
@@ -133,7 +152,22 @@ export class AgentService {
     return { contractHash, snapshotHash, binding: hashValue({ contractHash, snapshotHash, version: e.version, id: e.id }) };
   }
   private editable(e: Entry) { if (e.busy) fail('EXECUTION_PENDING', 'Reconcile pending action before changing its inputs'); }
-  private event(e: Entry, type: string, actor: string) { e.events.push({ type, actor, binding: this.hashes(e).binding }); }
+  private event(e: Entry, type: string, actor: string, extra?: VerdictEvent) {
+    e.events.push({ type, actor, binding: this.hashes(e).binding, ...extra });
+  }
+  /** 判定结果工件：同一快照+合同的 verdict 在事件与日志中逐位一致。 */
+  private verdictOf(e: Entry): VerdictInfo {
+    const report = evaluateSnapshot(e.snapshot, e.draft.claim);
+    return { verdictHash: verdictIdentity(report), truth: report.truth, observation: report.observation,
+      issues: report.issues, reviewRequired: report.reviewRequired };
+  }
+  /** 配置了审计 sink 时，把结算结果作为带 outcome 的判定记录追加；写入失败向调用方传播（fail-closed）。 */
+  private appendOutcome(e: Entry, outcome: Exclude<Outcome, 'NotExecuted'>): void {
+    if (!this.decisionLog) return;
+    const h = this.hashes(e);
+    this.decisionLog.appendDecision(fieldsFromReport(evaluateSnapshot(e.snapshot, e.draft.claim), e.draft.claim.kind,
+      new Date(this.clock()).toISOString(), { contractHash: h.contractHash, snapshotHash: h.snapshotHash }, outcome));
+  }
   create(actor: string, draft: unknown, snapshot: unknown): Record<string, unknown> {
     this.principal(actor);
     const e: Entry = { id: randomUUID(), draft: validateDraft(draft), snapshot: validateSnapshot(snapshot), proposer: actor,
@@ -144,7 +178,16 @@ export class AgentService {
       fail('MODEL_CONTRACT_REJECTED', 'Candidate changed mandatory host claim contract');
     }
     if (!this.config.actionReviews[e.draft.action].every(r => e.draft.requiredReviews.includes(r))) fail('MODEL_CONTRACT_REJECTED', 'Candidate omitted mandatory host reviews');
-    this.entries.set(e.id, e); this.event(e, 'Propose', actor); return this.get(e.id);
+    this.entries.set(e.id, e);
+    const verdict = this.verdictOf(e);
+    let decisionId: string | undefined;
+    if (this.decisionLog) {
+      const h = this.hashes(e);
+      decisionId = this.decisionLog.appendDecision(fieldsFromReport(evaluateSnapshot(e.snapshot, e.draft.claim), e.draft.claim.kind,
+        new Date(this.clock()).toISOString(), { contractHash: h.contractHash, snapshotHash: h.snapshotHash })).id;
+    }
+    this.event(e, 'Propose', actor, decisionId === undefined ? { verdict } : { verdict, decisionId });
+    return this.get(e.id);
   }
   async propose(actor: string, instruction: string, snapshot: unknown, domain: string, model: ModelProvider): Promise<Record<string, unknown>> {
     this.principal(actor); text(instruction); text(domain);
@@ -218,6 +261,7 @@ export class AgentService {
     })]); } finally { if(timer) clearTimeout(timer); }
   }
   private async settle(e: Entry, a: Attempt, raw: unknown): Promise<Record<string, unknown>> {
+    let outcome: 'Succeeded' | 'Failed' | 'Unknown';
     try {
       const receipt = this.receipt(raw, a);
       const verified = receipt.status === 'Succeeded' && await this.bounded(() => a.adapter.verify(a.request, receipt)) === true;
@@ -225,7 +269,10 @@ export class AgentService {
         issues: receipt.status === 'Succeeded' && !verified ? ['OUTCOME_UNCONFIRMED'] : [] };
       // A success receipt without verification remains pending and cannot be retried.
       e.busy = a.result.status === 'Unknown'; this.event(e, `Receipt:${a.result.status}`, a.actor);
-    } catch { a.result = { status: 'Unknown', request: a.request, verified: false, issues: ['INVALID_OR_UNVERIFIED_RECEIPT'] }; e.busy = true; }
+      outcome = a.result.status;
+    } catch { a.result = { status: 'Unknown', request: a.request, verified: false, issues: ['INVALID_OR_UNVERIFIED_RECEIPT'] }; e.busy = true; outcome = 'Unknown'; }
+    // Audit append sits outside the settlement catch: a sink failure surfaces to the caller instead of being misread as a bad receipt.
+    this.appendOutcome(e, outcome);
     return freeze(structuredClone(a.result));
   }
   async execute(actor: string, id: string, binding: string, key: string): Promise<Record<string, unknown>> {

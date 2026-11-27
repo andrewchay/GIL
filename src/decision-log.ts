@@ -219,6 +219,16 @@ export class DecisionLog {
   }
 }
 
+/**
+ * 判定身份哈希：L1 自洽比较与 agent 事件内嵌 verdict 共用同一口径。
+ * 第三方拿事件里的 verdictHash 与日志重算值对照，即可发现任一侧被篡改。
+ */
+export function verdictIdentity(report: {
+  truth: Verdict; observation: ObservationVerdict; issues: readonly string[]; reviewRequired: boolean;
+}): string {
+  return hashValue({ truth: report.truth, observation: report.observation, issues: report.issues, reviewRequired: report.reviewRequired });
+}
+
 export interface RepeatReport {
   /** 分组键为 contractHash + snapshotHash：同一合同与同一输入快照。 */
   groups: number;
@@ -248,13 +258,10 @@ export function repeatMismatchRate(records: readonly LogRecord[]): RepeatReport 
   for (const bucket of groups.values()) {
     if (bucket.length < 2) continue;
     repeated++;
-    const baseline = hashValue({ truth: bucket[0].truth, observation: bucket[0].observation,
-      issues: bucket[0].issues, reviewRequired: bucket[0].reviewRequired });
+    const baseline = verdictIdentity(bucket[0]);
     for (const record of bucket.slice(1)) {
       examined++;
-      const verdict = hashValue({ truth: record.truth, observation: record.observation,
-        issues: record.issues, reviewRequired: record.reviewRequired });
-      if (verdict !== baseline) mismatched++;
+      if (verdictIdentity(record) !== baseline) mismatched++;
     }
   }
   return Object.freeze({ groups: repeated, examined, mismatched, rate: examined === 0 ? 0 : mismatched / examined });

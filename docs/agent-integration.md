@@ -1,7 +1,19 @@
 # GIL Agent SDK 与 HTTP 实验性闭环
 
-状态：离线、过程内、双场景原型。Profile：`gil-agent-contract-0.2-experimental`。
+状态：离线、过程内、双场景原型。Profile：`gil-agent-contract-0.3-experimental`。
 不调用真实大模型，不执行临床动作、投放、发布或生产数据库写入。
+
+**0.3 变更（判定工件化）**：审计事件从 `{type, actor, binding}` 扩展为
+`{type, actor, binding, verdict?, decisionId?}`。`verdict` 内嵌 `{verdictHash, truth, observation, issues, reviewRequired}`，
+其中 `verdictHash = sha256({truth, observation, issues, reviewRequired})` 的规范化哈希，与
+[决策日志](decision-log.md)的判定身份（L1 自洽口径）**同一算法**。这意味着：
+
+- 不配置日志时，事件链自包含——第三方只凭事件即可读出每个时点判了什么；
+- 配置宿主 `decisionLog`（LogSink）时，create 与每次结算（outcome）各追加一条日志记录，
+  事件 `decisionId` 指向确切记录；对账即重算 `verdictIdentity` 对照，任一侧被篡改都会暴露
+  （日志侧 `LOG_TAMPERED`，事件侧哈希不一致）；
+- 审计写入失败按 fail-closed 处理：配置了 sink 但落盘失败时 create/结算直接报错，
+  不产生无审计的合同或结果。
 
 第一次集成建议先读[上手指南](getting-started.md)。本页是 SDK 与 HTTP 的完整参考。
 
