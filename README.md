@@ -44,7 +44,15 @@ npm run check:clinical
 npm run parse:examples
 ```
 
-The current test baseline is **304 passing tests** (run `npm test` for the live count). This validates tested implementations and synthetic fixtures, not production security, clinical approval, or full specification conformance.
+The current test baseline is **325 passing tests** (run `npm test` for the live count). This validates tested implementations and synthetic fixtures, not production security, clinical approval, or full specification conformance.
+
+Unified verification entry points (see [docs/verify.md](docs/verify.md)):
+
+```sh
+node src/cli.ts verify core SPEC ONTOLOGY...   # parse → link → check, versioned result object
+node src/cli.ts verify rl examples/机器人导航.gil
+node src/cli.ts verify-trace examples/机器人导航.gil examples/robot-runtime.ts TRACE.json
+```
 
 ### Other demos
 

@@ -44,7 +44,15 @@ npm run check:clinical
 npm run parse:examples
 ```
 
-当前测试基线为 **304 项左右通过**（以 `npm test` 实际输出为准）。这只证明所测实现与合成夹具的行为，不证明生产安全、临床批准或完整规范符合性。
+当前测试基线为 **325 项左右通过**（以 `npm test` 实际输出为准）。这只证明所测实现与合成夹具的行为，不证明生产安全、临床批准或完整规范符合性。
+
+统一验证入口（见 [docs/verify.md](docs/verify.md)）：
+
+```sh
+node src/cli.ts verify core SPEC ONTOLOGY...   # parse → link → check，带版本结果对象
+node src/cli.ts verify rl examples/机器人导航.gil
+node src/cli.ts verify-trace examples/机器人导航.gil examples/robot-runtime.ts TRACE.json
+```
 
 ### 其他演示
 

@@ -285,3 +285,17 @@ Lean 成立需要：封闭模型、命题只关于模型、检验便宜、事实
 Lean 的护城河是 mathlib 不是内核。采用率重心应从"检查器完备"移到可共享 ontology/profile 库：加 ontology 版本兼容性检查，做第二个垂直切片。当前仅临床一个切片，库网络效应未启动。
 
 （以上均未实施，属设计讨论记录。）
+
+## 2026-11-27 Lean 收紧落地（计划批准后实施）
+
+四提交全部完成（e3e57fc / 1f90a8a / e72a341 / 4f9b9bb），325 项测试全绿。
+
+**A 判定工件化**：Entry.events 扩展 {verdict?, decisionId?}；verdictHash 与 L1 自洽共用新导出的 verdictIdentity——单点口径，事件与日志永不失配。profile 升 0.3。踩坑：审计写入放 settle 的 try 外，否则 sink IO 错误会被误判成坏回执。
+
+**B verify 入口**：gil-verify-0.1 结果对象；profile 与 verifyVersion 语义分离。写测试时踩两次夹具坑：{...draft, recipient: undefined} 触发 canonical 的 non-JSON 拒绝（防线本身），要用 delete 缺字段；破坏 RL 概率要改字面数字不是"uniform"。
+
+**C verify-trace**：最重要的一课——trace 必须记录"策略说了什么"而不是"环境做了什么"。贪心 right 策略第 5 次 policy 调用产生失败转移，steps 只有 4 步，朴素记录重放必报 POLICY_TRACE_EXHAUSTED。rollout 加 recordDecisions 补齐。RUNTIME 用宿主原语模块（examples/robot-runtime.ts），与"原语由宿主提供"铁律一致。
+
+**D 计划修正**：link() 早已强制精确 name@version 匹配（IMPORT_VERSION_REQUIRED 禁 latest/范围），interpretation 侧同样——note 原判断"Import 不带版本约束"过时。不引入结构化 version 字段（会漂移全部摘要，违背铁律 7）。改为 verify 输出 bindings + 固定 digest 零漂移测试。教训：写计划前先 grep 现有实现，"加功能"可能实际是"补文档"。
+
+第二切片（金融合规审批）概要保留在 plan/lean-tightening.md，未启动。
