@@ -97,6 +97,10 @@
 | `examples/酒店预订.gil` | 展示 Core `spec`、自然语言 `interpretation`（接地与歧义）及 `delegate` 语法示意 |
 | `examples/机器人导航.gil` | 展示 GIL-RL `environment`、随机转移 `outcomes`、终止条件、奖励与带约束优化目标 |
 
+## 仓库操作注意
+- `.git/config` 受沙箱保护不可写（`git remote add` 报 Operation not permitted）；remote 未持久化。推送直接用 SSH URL：`git push git@github.com:andrewchay/GIL.git main`。https 会静默失败（无 credential helper 且沙箱无法弹认证）。
+- `/tmp` 写入被沙箱拒绝；临时文件放项目目录内。
+
 ## 核心设计铁律（修改规范或编写实现时必须遵守）
 1. **LLM 不定义语义**：LLM 只能提出 `Interpretation` 候选，规范 AST 是唯一权威对象；模型概率/置信度绝不等于用户接受或授权依据。
 2. **正交概念严禁混同**：
