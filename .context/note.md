@@ -255,3 +255,33 @@ exchange实现Propose/Clarify/Answer/Accept、不可变历史、三hash精确接
    - 阶段 1：词法/语法解析器（Parser）、规范化 AST 生成与 `ContentHash` 计算、类型与本体引用检查器、Core 三值求值器。
    - 阶段 2：开放项（`open`）、歧义（`ambiguous`）与 `SourceRef` 接地检查。
    - 阶段 3：`Exchange` 事件账本与结构化 `SemanticDiff` 引擎。
+
+## 2026-11-27 设计对标分析：Lean 模式的边界与 GIL 调整方案
+
+背景：分析"为什么 Lean 只出现在数学里"，对比区块链/Git/CT/seL4 的移植成功度，得出 GIL 设计调整方案。
+
+### Lean 四前提与现实世界的差距
+Lean 成立需要：封闭模型、命题只关于模型、检验便宜、事实不腐烂。数学全满足；现实世界全不满足（原语来自宿主、证据可变、判定有权限成本、凭证会失效）。
+
+### 移植成功度规律
+成功度 ≈ 领域被改造成模型的程度：
+- 内核级成功（区块链/zk、Git、CT）：封闭模型，极小内核 + 可验证工件
+- 模型化成功（seL4、CompCert、AWS TLA+）：验证的是设计层模型，不触运行时事实
+- 仅边界纪律（in-toto/SLSA、21 CFR Part 11、Ricardian 合同）：哈希、append-only、attestation、预注册
+- 智能合约的教训：代码是模型，意图不是——interpretation/clarification 层是合约世界缺失的
+
+### 三处收紧（TODO 性质）
+1. **判定结果工件化**：`Entry.events` 只记录 {type, actor, binding}，不记录判定结果（11-03 已发现，仍未修）。审计链须含 truth/observation 哈希或引用 decision-log 条目，否则第三方无法只凭日志重做出同一判断。
+2. **统一验证入口**：判定散在 checker / rl-checker / delegation / assurance gate / agent-semantics 五处。应提供单个 `verify` 命令按 profile 组合，输出带版本结果对象，避免消费者自拼"伪内核"。
+3. **trace 可重放一等化**：runtime 已有种子回放（同 seed 必得同 traceHash）。补 `verify-trace` 类命令：外部拿 seed + fixture 重算哈希，不信任日志。离 zk 证明最近的一步。
+
+### 不做清单
+- 不做开放世界定理证明；谓词求值保持有限域 + 有界时序
+- preference 永不升级为授权（authorizeFromRanking 提醒保持）
+- 不用 Bool 冒充 attestation（phase5 已废，不回退）
+- checker 不做大；新能力先走 profile 层，成熟再下沉
+
+### 战略级重心
+Lean 的护城河是 mathlib 不是内核。采用率重心应从"检查器完备"移到可共享 ontology/profile 库：加 ontology 版本兼容性检查，做第二个垂直切片。当前仅临床一个切片，库网络效应未启动。
+
+（以上均未实施，属设计讨论记录。）
