@@ -2,6 +2,7 @@
 // 所有随机性来自显式种子；转移概率与奖励值全部取自声明，运行时不发明数值。
 import { GilError } from './ast.ts';
 import { hashValue } from './interpretation.ts';
+import { contentHash } from './canonical.ts';
 import { checkEnvironment } from './rl-checker.ts';
 import type { Expr } from './ast.ts';
 import type { Environment, Primitives, RewardTerm } from './rl-ast.ts';
@@ -33,11 +34,16 @@ export interface Episode {
   violations: string[];
   goalsSatisfied: string[];
   traceHash: string;
+  /**
+   * recordDecisions 模式下的完整决策序列：包含导致转移失败的最后一次调用。
+   * trace 记录的是"策略说了什么"，不是"环境做了什么"——否则重放会缺最后一步。
+   */
+  decisions?: PolicyDecision[];
 }
 
 export interface Runtime { env: Environment; primitives: Primitives; initialState: RlState }
 
-export interface RolloutOptions { seed: number; maxSteps: number }
+export interface RolloutOptions { seed: number; maxSteps: number; recordDecisions?: boolean }
 
 export interface EvaluationReport {
   episodes: number;
@@ -263,6 +269,7 @@ export function rollout(runtime: Runtime, policy: Policy, options: RolloutOption
   let state: RlState = { ...runtime.initialState };
   const steps: StepRecord[] = [], violations: string[] = [], satisfied = new Set<string>();
   const claimed = new Set<string>();
+  const recorded: PolicyDecision[] = [];
   let terminal: Terminal | null = null;
   let index = 0;
   while (terminal === null) {
@@ -271,6 +278,7 @@ export function rollout(runtime: Runtime, policy: Policy, options: RolloutOption
     for (const name of violationsOf(runtime, state)) if (!violations.includes(name)) violations.push(name);
     for (const name of goalsSatisfiedAt(runtime, state)) satisfied.add(name);
     const decision = policy(state, index);
+    if (options.recordDecisions) recorded.push(decision);
     let moved: Transition;
     try { moved = transition(runtime, state, decision, draw); }
     catch (error) {
@@ -293,7 +301,8 @@ export function rollout(runtime: Runtime, policy: Policy, options: RolloutOption
   let total = 0;
   for (const step of steps) total += step.reward * discount ** step.index;
   const traceHash = hashValue({ steps, terminal, violations });
-  return { seed, steps, terminal, return: total, violations, goalsSatisfied: [...satisfied], traceHash };
+  return { seed, steps, terminal, return: total, violations, goalsSatisfied: [...satisfied], traceHash,
+    ...(options.recordDecisions ? { decisions: recorded } : {}) };
 }
 
 /** 多条轨迹的聚合评估。种子显式给出，报告里回填，保证可比较。 */
@@ -334,5 +343,94 @@ export function classifyTerms(env: Environment): { task: RewardTerm[]; other: Re
   return {
     task: env.reward.terms.filter(term => term.kind === 'once-entered' && term.amount > 0),
     other: env.reward.terms.filter(term => !(term.kind === 'once-entered' && term.amount > 0)),
+  };
+}
+
+// ─── verify-trace：可重放作为一等能力 ──────────────────────────────
+// 外部持有（环境文件、宿主原语模块、trace JSON）三件套即可独立重算 traceHash，
+// 不信任任何日志。这是审计的最强形态，也是仓库离 zk 证明最近的一步。
+
+/** 记录式 trace：决策序列 + 种子，附可选的环境与预期哈希绑定。 */
+export interface RecordedTrace {
+  seed: number;
+  maxSteps: number;
+  decisions: PolicyDecision[];
+  environmentHash?: string;
+  expectedTraceHash?: string;
+}
+
+const isHash = (value: unknown): value is string =>
+  typeof value === 'string' && /^sha256:[0-9a-f]{64}$/.test(value);
+
+export function parseRecordedTrace(value: unknown): RecordedTrace {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_TRACE', 'Expected object');
+  const r = value as Record<string, unknown>;
+  const allowed = new Set(['seed', 'maxSteps', 'decisions', 'environmentHash', 'expectedTraceHash']);
+  const extra = Object.keys(r).filter(key => !allowed.has(key));
+  if (extra.length) fail('INVALID_TRACE', `Unknown fields: ${extra.join(', ')}`);
+  for (const key of ['seed', 'maxSteps', 'decisions'] as const) {
+    if (!Object.hasOwn(r, key)) fail('INVALID_TRACE', `Missing ${key}`);
+  }
+  if (!Number.isSafeInteger(r.seed)) fail('INVALID_TRACE', 'seed must be a safe integer');
+  if (!Number.isSafeInteger(r.maxSteps) || r.maxSteps < 1 || r.maxSteps > 1_000_000) {
+    fail('INVALID_TRACE', 'maxSteps must be a positive safe integer ≤ 1e6');
+  }
+  if (!Array.isArray(r.decisions)) fail('INVALID_TRACE', 'decisions must be an array');
+  const decisions: PolicyDecision[] = r.decisions.map((item, index) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) fail('INVALID_TRACE', `decision ${index} must be an object`);
+    const d = item as Record<string, unknown>;
+    if (typeof d.action !== 'string' || !d.action.trim()) fail('INVALID_TRACE', `decision ${index} needs a non-empty action`);
+    if (Object.keys(d).some(key => key !== 'action' && key !== 'params')) fail('INVALID_TRACE', `decision ${index} has unknown fields`);
+    if (d.params === undefined) return { action: d.action };
+    if (!isPlain(d.params)) fail('INVALID_TRACE', `decision ${index} params must be an object`);
+    return { action: d.action, params: structuredClone(d.params) };
+  });
+  if (r.environmentHash !== undefined && !isHash(r.environmentHash)) fail('INVALID_TRACE', 'environmentHash must be sha256:<hex>');
+  if (r.expectedTraceHash !== undefined && !isHash(r.expectedTraceHash)) fail('INVALID_TRACE', 'expectedTraceHash must be sha256:<hex>');
+  return { seed: r.seed, maxSteps: r.maxSteps, decisions,
+    ...(r.environmentHash !== undefined ? { environmentHash: r.environmentHash } : {}),
+    ...(r.expectedTraceHash !== undefined ? { expectedTraceHash: r.expectedTraceHash } : {}) };
+}
+
+/**
+ * 记录式策略：第 i 步返回 decisions[i]。轨迹耗尽是 verify 失败（POLICY_TRACE_EXHAUSTED），
+ * 与环境 cutoff 严格分离——截断的重放不能伪装成正常终止。
+ */
+export function recordedPolicy(decisions: readonly PolicyDecision[]): Policy {
+  return (_state, step) => {
+    const decision = decisions[step];
+    if (decision === undefined) fail('POLICY_TRACE_EXHAUSTED', `No recorded decision for step ${step}`);
+    return decision;
+  };
+}
+
+export interface TraceVerifyResult {
+  /** 对照完成且全部一致；重放失败（耗尽/环境不符）为 false。 */
+  ok: boolean;
+  /** 是否完成了至少一项哈希对照（expectedTraceHash 或 environmentHash）。 */
+  verified: boolean;
+  match: boolean | null;
+  recomputedTraceHash: string;
+  expectedTraceHash: string | null;
+  environmentHashMatch: boolean | null;
+  steps: number;
+  terminal: Terminal;
+}
+
+/** 重放决策序列并重算 traceHash。环境哈希不匹配、对照失败都算 ok:false。 */
+export function verifyTrace(runtime: Runtime, trace: RecordedTrace): TraceVerifyResult {
+  let environmentHashMatch: boolean | null = null;
+  if (trace.environmentHash !== undefined) {
+    environmentHashMatch = contentHash(runtime.env) === trace.environmentHash;
+  }
+  const episode = rollout(runtime, recordedPolicy(trace.decisions), { seed: trace.seed, maxSteps: trace.maxSteps });
+  const match = trace.expectedTraceHash === undefined ? null : episode.traceHash === trace.expectedTraceHash;
+  return {
+    ok: match !== false && environmentHashMatch !== false,
+    verified: trace.expectedTraceHash !== undefined || trace.environmentHash !== undefined,
+    match, recomputedTraceHash: episode.traceHash,
+    expectedTraceHash: trace.expectedTraceHash ?? null,
+    environmentHashMatch,
+    steps: episode.steps.length, terminal: episode.terminal,
   };
 }

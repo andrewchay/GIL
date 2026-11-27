@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { delegationDemo } from './delegation-demo.ts';
 import { assuranceDemo } from './assurance-demo.ts';
 import { governanceDemo } from './governance-demo.ts';
@@ -10,7 +11,9 @@ import { decisionLogDemo } from './decision-log-demo.ts';
 import { blindBenchDemo } from './blind-bench-demo.ts';
 import { importCases, renderBlindPack, renderResponseSheet, renderAnswerKey, parseResponseSheet, analyze } from './blind-bench.ts';
 import { readFileSync as read, writeFileSync as write, mkdirSync } from 'node:fs';
-import { parse, parseBundle, parseInterpretation } from './parser.ts';
+import { parse, parseBundle, parseInterpretation, parseEnvironment } from './parser.ts';
+import { checkEnvironment } from './rl-checker.ts';
+import { createRuntime, verifyTrace, parseRecordedTrace } from './rl.ts';
 import { sourceArtifact } from './interpretation.ts';
 import { startSession, answer, accept, resolvedHash } from './exchange.ts';
 import { canonical, contentHash } from './canonical.ts';
@@ -22,7 +25,7 @@ import type { State } from './runtime.ts';
 import { verifyCore, verifyRl, verifyAgent, verifyAgentInput } from './verify.ts';
 import type { VerifyResult } from './verify.ts';
 
-const usage = 'Usage: node src/cli.ts ast FILE | parse FILE | check SPEC ONTOLOGY... | simulate SPEC ONTOLOGY FIXTURE.json | verify core SPEC ONTOLOGY... | verify rl ENV | verify agent CONTRACT.json | clarify INTERPRETATION FIXTURE.json [--demo-answer]';
+const usage = 'Usage: node src/cli.ts ast FILE | parse FILE | check SPEC ONTOLOGY... | simulate SPEC ONTOLOGY FIXTURE.json | verify core SPEC ONTOLOGY... | verify rl ENV | verify agent CONTRACT.json | verify-trace ENV RUNTIME TRACE.json | clarify INTERPRETATION FIXTURE.json [--demo-answer]';
 function emit(value: unknown): void { process.stdout.write(JSON.stringify(value, null, 2) + '\n'); }
 function load(path: string) { return parse(readFileSync(path, 'utf8')); }
 function program(specPath: string, ontologyPaths: string[]) {
@@ -133,6 +136,25 @@ try {
     else throw new GilError('CLI_ERROR', usage);
     emit(result);
     if (!result.ok) process.exitCode = 1;
+  } else if (command === 'verify-trace' && args.length === 3) {
+    // 可重放一等能力：外部持（环境、宿主原语模块、trace）三件套独立重算，不信任日志。
+    // RUNTIME 是宿主代码（default export = Primitives），与宿主 primitives 同一信任级别。
+    const env = parseEnvironment(read(args[0], 'utf8'));
+    const envDiagnostics = checkEnvironment(env);
+    if (envDiagnostics.length) throw new GilError('VERIFY_INPUT', `Environment failed structure check: ${JSON.stringify(envDiagnostics)}`);
+    const runtimeModule = await import(pathToFileURL(args[1]).href);
+    if (!runtimeModule?.default || typeof runtimeModule.default !== 'object') throw new GilError('VERIFY_INPUT', 'RUNTIME module must default-export a Primitives object');
+    const trace = parseRecordedTrace(JSON.parse(read(args[2], 'utf8')));
+    try {
+      const result = verifyTrace(createRuntime(env, runtimeModule.default), trace);
+      emit({ mode: 'verify-trace', ...result });
+      if (!result.ok) process.exitCode = 1;
+    } catch (error) {
+      if (error instanceof GilError && error.code === 'POLICY_TRACE_EXHAUSTED') {
+        emit({ ok: false, mode: 'verify-trace', code: error.code, message: error.message });
+        process.exitCode = 1;
+      } else throw error;
+    }
   } else if (command === 'check' && args.length >= 1) {
     const result = program(args[0], args.slice(1));
     emit({ ok: result.diagnostics.length === 0, profile: 'gil-core-clinical-0.1', ...result.hashes, diagnostics: result.diagnostics });
