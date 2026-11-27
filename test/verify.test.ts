@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { verifyCore, verifyRl, verifyAgent, verifyAgentInput, VERIFY_VERSION } from '../src/verify.ts';
+import { contentHash } from '../src/canonical.ts';
+import { parse } from '../src/parser.ts';
 import { scenario } from '../src/agent-demo.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -17,9 +19,14 @@ test('verify core passes the clinical slice with hashes and versioned result', (
   assert.equal(result.ok, true, JSON.stringify(result.checks));
   assert.equal(result.verifyVersion, VERIFY_VERSION);
   assert.equal(result.profile, 'gil-core-clinical-0.1');
-  assert.deepEqual(result.checks.map(c => c.name), ['parse-spec', 'parse-ontology-0', 'link', 'core-check']);
+  assert.deepEqual(result.checks.map(c => c.name),
+    ['parse-spec', 'parse-ontology-0', 'link', 'ontology-version-bindings', 'core-check']);
   assert.match(result.hashes.spec, /^sha256:[a-f0-9]{64}$/);
   assert.match(result.hashes['ontology-0'], /^sha256:[a-f0-9]{64}$/);
+  // 版本绑定显式可读：import 名单与已解析的 name@version 一一对应。
+  const bindings = JSON.parse(result.checks.find(c => c.name === 'ontology-version-bindings')!.details!);
+  assert.ok(bindings.length > 0);
+  for (const binding of bindings) assert.equal(binding.import, binding.resolved);
 });
 
 test('verify core reports each broken input as a named check without fail-fast', () => {
@@ -74,6 +81,16 @@ test('verify agent input rejects files with extra or missing fields', () => {
     e instanceof Error && (e as { code?: string }).code === 'VERIFY_INPUT');
   assert.throws(() => verifyAgentInput({ draft: {} }), (e: unknown) =>
     e instanceof Error && (e as { code?: string }).code === 'VERIFY_INPUT');
+});
+
+test('legacy canonical hashes are frozen: version binding lives in the name string, not a field', () => {
+  // 版本兼容由 link() 的精确 name@version 匹配承担，Import 没有结构化 version 字段。
+  // 因此本仓库既有文档的 canonical 摘要必须零漂移；若此测试失败，
+  // 说明 canonical/Import/lexer 被改动——先读 CLAUDE.md 铁律 7 再动手。
+  assert.equal(contentHash(parse(read(spec))),
+    'sha256:85d1cafec58b96be3c458111bcf9eb2c1d434fc8f49c0646b72ab495ad029e09');
+  assert.equal(contentHash(parse(read(ontology))),
+    'sha256:5b2411bb7a94fb1d5764a018a75086062c83ea0dd4a8415994b91ee841685b6b');
 });
 
 test('CLI verify commands exit nonzero on failure and emit versioned results', () => {

@@ -69,6 +69,13 @@ export function verifyCore(specText: string, ontologyTexts: readonly string[]): 
     try {
       const linked = link(spec, ontologies);
       checks.push({ name: 'link', ok: true });
+      // link 已强制精确 name@version 匹配；这里把绑定结果显式报出来供审计读取。
+      const bindings = spec.imports.filter(item => item.layer !== 'lexicon').map(item => {
+        const resolved = ontologies.find(o => `${o.name}@${o.version}` === item.name);
+        return { import: item.name, alias: item.alias, resolved: resolved ? `${resolved.name}@${resolved.version}` : null };
+      });
+      checks.push({ name: 'ontology-version-bindings', ok: bindings.every(b => b.resolved !== null),
+        details: JSON.stringify(bindings) });
       const diagnostics: Diagnostic[] = check(linked);
       checks.push({ name: 'core-check', ok: diagnostics.length === 0, details: diagnosticsDetails(diagnostics) });
     } catch (error) {

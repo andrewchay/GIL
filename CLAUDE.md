@@ -97,6 +97,13 @@
 | `examples/酒店预订.gil` | 展示 Core `spec`、自然语言 `interpretation`（接地与歧义）及 `delegate` 语法示意 |
 | `examples/机器人导航.gil` | 展示 GIL-RL `environment`、随机转移 `outcomes`、终止条件、奖励与带约束优化目标 |
 
+## Lean 收紧落地（2026-11-27）
+- **判定工件化**：`Entry.events` 元素为 `{type, actor, binding, verdict?, decisionId?}`；`verdictHash` 与 decision-log 判定身份同口径（`decision-log.ts` 导出 `verdictIdentity`，L1 自洽复用同一函数）。HostConfig 可选 `decisionLog: LogSink`：create 与每次结算各追加记录，写入失败 fail-closed。profile 是 `gil-agent-contract-0.3-experimental`。
+- **统一验证入口**：`src/verify.ts` + CLI `verify core|rl|agent`；结果对象 `gil-verify-0.1`，`profile`（被验对象）与 `verifyVersion`（输出格式）分离。delegation/assurance gate 是运行时判定，不入静态入口（`docs/verify.md`）。
+- **verify-trace**：`rl.ts` 的 `recordedPolicy`/`verifyTrace`/`parseRecordedTrace`；CLI `verify-trace ENV RUNTIME TRACE.json`，RUNTIME 是宿主原语模块（如 `examples/robot-runtime.ts`，default export Primitives）。`rollout` 支持 `recordDecisions`——trace 记录"策略说了什么"，**含导致转移失败的最后一次调用**（steps 只记成功转移，重放会缺最后一步，这是踩过的坑）。轨迹耗尽报 `POLICY_TRACE_EXHAUSTED`，与 cutoff 严格分离。
+- **ontology 版本检查早已存在**：`link()` 强制精确 `name@version` 匹配（IMPORT_VERSION_REQUIRED 拒绝 latest/范围；UNRESOLVED/AMBIGUOUS 区分），interpretation 侧同样（interpretation.ts）。note 里"Import 不带版本约束"是过时判断。版本绑定在 name 字符串内、无结构化字段——既有文档 canonical 摘要零漂移（verify.test.ts 有固定 digest 锁）。
+- verify core 输出 `ontology-version-bindings` check 显式报告每次解析绑定。
+
 ## 仓库操作注意
 - `.git/config` 受沙箱保护不可写（`git remote add` 报 Operation not permitted）；remote 未持久化。推送直接用 SSH URL：`git push git@github.com:andrewchay/GIL.git main`。https 会静默失败（无 credential helper 且沙箱无法弹认证）。
 - `/tmp` 写入被沙箱拒绝；临时文件放项目目录内。

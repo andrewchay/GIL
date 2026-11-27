@@ -34,6 +34,18 @@ node src/cli.ts verify agent contract.json
 - 逐项报告、不 fail-fast：每个 check 有名字，失败带结构化 `code`。
 - 退出码取整体 `ok`；`ok:false` 时为 1。
 
+## ontology 版本绑定
+
+版本兼容不需要额外配置：spec 的 `use ontology "name@version" as C` 由 `link()`
+强制**精确匹配**——`latest`、`^`、`~`、`*`、范围比较一律 `IMPORT_VERSION_REQUIRED`；
+版本不存在 `UNRESOLVED_IMPORT`；同一 ontology 重复提供 `AMBIGUOUS_IMPORT`。
+interpretation 侧的 import 同样强制精确版本。
+
+`verify core` 的 `ontology-version-bindings` check 把每次解析结果显式报出
+（`{import, alias, resolved}`），审计方无需读源文件即可核对绑定关系。
+版本绑定写在 name 字符串内而非结构化字段，因此既有文档 canonical 摘要零漂移
+（有测试锁定：`verify.test.ts` 的 legacy hashes 测试）。
+
 ## 边界：verify 不是授权判定
 
 `verify` 只覆盖**静态面**。以下判定依赖运行时可变状态，**不属于也不应属于**本入口：
