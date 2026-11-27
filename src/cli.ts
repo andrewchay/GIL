@@ -19,8 +19,10 @@ import { initialize, simulate, monitor } from './runtime.ts';
 import { GilError } from './ast.ts';
 import type { Spec, Ontology } from './ast.ts';
 import type { State } from './runtime.ts';
+import { verifyCore, verifyRl, verifyAgent, verifyAgentInput } from './verify.ts';
+import type { VerifyResult } from './verify.ts';
 
-const usage = 'Usage: node src/cli.ts ast FILE | parse FILE | check SPEC ONTOLOGY... | simulate SPEC ONTOLOGY FIXTURE.json | clarify INTERPRETATION FIXTURE.json [--demo-answer]';
+const usage = 'Usage: node src/cli.ts ast FILE | parse FILE | check SPEC ONTOLOGY... | simulate SPEC ONTOLOGY FIXTURE.json | verify core SPEC ONTOLOGY... | verify rl ENV | verify agent CONTRACT.json | clarify INTERPRETATION FIXTURE.json [--demo-answer]';
 function emit(value: unknown): void { process.stdout.write(JSON.stringify(value, null, 2) + '\n'); }
 function load(path: string) { return parse(readFileSync(path, 'utf8')); }
 function program(specPath: string, ontologyPaths: string[]) {
@@ -121,6 +123,16 @@ try {
       session = accept(session, { interpretationHash: session.interpretationHash, planHash: session.planHash, resolvedHash: resolvedHash(session) }, human);
     }
     emit({ ok: true, mode: 'synthetic-clarification', authorization: 'not-implemented', warning: 'Demo answers are synthetic, not actual user consent or clinical authorization', initialQuestions, session });
+  } else if (command === 'verify' && args.length >= 2) {
+    // 统一验证入口：静态面的单一可信面。verify 输出不是授权判定（见 docs/verify.md）。
+    const [profile, ...files] = args;
+    let result: VerifyResult;
+    if (profile === 'core') result = verifyCore(read(files[0], 'utf8'), files.slice(1).map(path => read(path, 'utf8')));
+    else if (profile === 'rl') result = verifyRl(read(files[0], 'utf8'));
+    else if (profile === 'agent') result = verifyAgent(verifyAgentInput(JSON.parse(read(files[0], 'utf8'))));
+    else throw new GilError('CLI_ERROR', usage);
+    emit(result);
+    if (!result.ok) process.exitCode = 1;
   } else if (command === 'check' && args.length >= 1) {
     const result = program(args[0], args.slice(1));
     emit({ ok: result.diagnostics.length === 0, profile: 'gil-core-clinical-0.1', ...result.hashes, diagnostics: result.diagnostics });

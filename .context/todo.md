@@ -1,6 +1,6 @@
 # Lean 收紧落地（计划已批准 2026-11-27）
 
-- [ ] Commit 1：判定工件化——Entry.events 内嵌 verdict + decisionId，profile 升 0.3，decisionLog 可选配置
+- [x] Commit 1：判定工件化——Entry.events 内嵌 verdict + decisionId，profile 升 0.3，decisionLog 可选配置
 - [ ] Commit 2：统一验证入口——src/verify.ts + `verify core|rl|agent` CLI
 - [ ] Commit 3：verify-trace——RecordedPolicy + `verify-trace` CLI
 - [ ] Commit 4：ontology Import.version 精确匹配 + canonical 零漂移
